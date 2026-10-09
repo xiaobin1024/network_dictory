@@ -1,0 +1,1192 @@
+/* ================= 全局基础 ================= */
+* {
+    font-family: "Microsoft YaHei", "Segoe UI", sans-serif;
+    font-size: 13px;
+    outline: none;
+}
+
+QWidget, QDialog, QFrame {
+    background-color: {{bg-primary}};   /* 纯白 #FFFFFF：顶层表面背景 */
+    color: {{text-primary}};              /* 近黑 #111827：主阅读文字 */
+}
+
+/* ================= 按钮 ================= */
+QPushButton {
+    background-color: {{btn-primary-bg}};    /* 亮蓝 #3B82F6：主题品牌色 */
+    color: {{btn-primary-text}};             /* 纯白 #FFFFFF：按钮文字 */
+    border: 1px solid {{border-color}};      /* 浅灰 #E5E7EB：默认边框 */
+    border-radius: 6px;
+    padding: 7px 14px;
+    min-width: 70px;
+}
+QPushButton:hover {
+    background-color: {{btn-primary-hover}}; /* 深蓝 #2563EB：悬停状态 */
+    border-color: {{btn-primary-hover}};
+}
+QPushButton:pressed {
+    background-color: {{btn-primary-pressed}}; /* 更深蓝 #1D4ED8：按下状态 */
+}
+QPushButton:disabled {
+    background-color: {{bg-tertiary}};       /* 浅灰 #E5E7EB：禁用底 */
+    color: {{text-disabled}};                /* 灰 #9CA3AF：禁用文字 */
+    border-color: {{border-disabled}};       /* 淡灰 #F3F4F6：禁用边框 */
+}
+
+/* 次级按钮 */
+QPushButton[objectName^="secondary"] {
+    background-color: {{btn-secondary-bg}};    /* 灰 #4B5563 */
+    color: {{btn-secondary-text}};             /* 白 #FFFFFF */
+}
+QPushButton[objectName^="secondary"]:hover {
+    background-color: {{btn-secondary-hover}}; /* 深灰 #374151 */
+}
+
+/* ================= 输入框 & 文本 ================= */
+QLineEdit, QTextEdit, QPlainTextEdit {
+    background-color: {{input-bg}};          /* 白 #FFFFFF：输入区背景 */
+    border: 1px solid {{input-border}};      /* 浅灰 #D1D5DB：输入边框 */
+    border-radius: 4px;
+    padding: 6px;
+    color: {{text-primary}};                   /* 近黑 #111827 */
+}
+QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus {
+    border: 1px solid {{input-focus}};       /* 亮蓝 #3B82F6：焦点高亮 */
+}
+QLineEdit:disabled, QTextEdit:disabled {
+    background-color: {{bg-tertiary}};       /* 浅灰 #E5E7EB */
+    color: {{text-disabled}};                  /* 灰 #9CA3AF */
+}
+
+QLabel {
+    color: {{text-primary}};                   /* 近黑 #111827 */
+    background: transparent;
+    padding: 2px 0;
+}
+QLabel[fontWeight="bold"] { font-weight: bold; }
+QLabel[objectName$="Placeholder"] {
+    color: {{text-secondary}};                 /* 中灰 #6B7280：占位提示 */
+}
+
+/* ================= 容器 & 布局 ================= */
+QGroupBox {
+    border: 1px solid {{border-color}};        /* 浅灰 #E5E7EB */
+    border-radius: 6px;
+    margin-top: 8px;
+    padding: 12px 8px 8px 8px;
+}
+QGroupBox::title {
+    subcontrol-origin: margin;
+    left: 10px;
+    padding: 0 5px;
+    color: {{text-secondary}};                  /* 中灰 #6B7280 */
+    font-weight: bold;
+}
+
+QScrollArea {
+    border: none;
+    background-color: {{bg-secondary}};        /* 淡灰 #F3F4F6：滚动区底色 */
+}
+QScrollBar:vertical {
+    background: {{scroll-bg}};                 /* 淡灰 #F3F4F6：轨道 */
+    width: 8px;
+    border-radius: 4px;
+    margin: 0;
+}
+QScrollBar::handle:vertical {
+    background: {{scroll-handle}};             /* 浅灰 #D1D5DB：滑块 */
+    border-radius: 4px;
+    min-height: 20px;
+}
+QScrollBar::handle:vertical:hover {
+    background: {{scroll-hover}};              /* 中灰 #9CA3AF：滑块悬停 */
+}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
+
+/* ================= 状态属性 (动态) ================= */
+BaseWidget[uiState="Loading"] {
+    background-color: {{bg-secondary}};        /* 淡灰 #F3F4F6 */
+    border: 1px dashed {{input-focus}};      /* 亮蓝 #3B82F6 */
+}
+BaseWidget[uiState="Error"] {
+    border: 2px solid {{error-bg}};          /* 红 #EF4444 */
+    background-color: rgba(239, 68, 68, 0.08); /* 硬编码：主题红 8% 透明度，错误状态底色 */
+}
+
+/* ================= 消息悬浮层 ================= */
+QLabel#messageOverlay {
+    border-radius: 6px;
+    padding: 8px 16px;
+    font-size: 14px;
+    font-weight: 500;
+}
+
+QLabel#messageOverlay[messageType="success"] {
+    background-color: {{btn-primary-bg}};      /* 亮蓝 #3B82F6 */
+    color: {{btn-primary-text}};               /* 白 #FFFFFF */
+    border: 1px solid {{btn-primary-hover}}; /* 深蓝 #2563EB */
+}
+
+QLabel#messageOverlay[messageType="error"] {
+    background-color: {{error-bg}};            /* 红 #EF4444 */
+    color: {{error-text}};                   /* 白 #FFFFFF */
+    border: 1px solid {{error-border}};      /* 深红 #DC2626 */
+}
+
+/* ================= SystemSidebar 侧边栏 ================= */
+SystemSidebar {
+    /* 浅灰 #E5E7EB：比主背景 #F3F4F6 略深，形成自然边界，不再使用突兀的深蓝 */
+    background-color: {{bg-tertiary}};
+    border-right: 1px solid {{border-color}};  /* 浅灰 #E5E7EB */
+}
+
+SystemSidebar[expanded="true"] {
+    min-width: 180px;
+    max-width: 180px;
+}
+
+SystemSidebar[expanded="false"] {
+    min-width: 50px;
+    max-width: 50px;
+}
+
+/* 容器透明化，确保侧边栏底色透出 */
+SystemSidebar #buttonContainer,
+SystemSidebar #headerWidget,
+SystemSidebar #topButtons,
+SystemSidebar #bottomContainer {
+    background-color: transparent;
+}
+
+/* 头像 */
+SystemSidebar #avatarLabel {
+    background-color: {{bg-tertiary}};         /* 浅灰 #E5E7EB */
+    color: {{text-primary}};                   /* 近黑 #111827 */
+    border-radius: 35px;
+    font-weight: bold;
+    font-size: 24px;
+}
+
+/* 用户名 */
+SystemSidebar #usernameLabel {
+    color: {{text-primary}};                   /* 近黑 #111827 */
+    font-weight: bold;
+    font-size: 14px;
+    background: transparent;
+}
+
+/* 通用侧边栏按钮 */
+QPushButton[sidebarButton="true"] {
+    background-color: transparent;
+    color: {{text-primary}};                   /* 近黑 #111827 */
+    border: 1px solid transparent;
+    border-radius: 6px;
+    padding: 8px 12px;
+    text-align: left;
+    font-size: 13px;
+}
+QPushButton[sidebarButton="true"]:hover {
+    background-color: {{bg-secondary}};        /* 淡灰 #F3F4F6：悬停底色 */
+    border-color: {{border-color}};            /* 浅灰 #E5E7EB */
+}
+QPushButton[sidebarButton="true"]:pressed {
+    background-color: {{bg-primary}};          /* 白 #FFFFFF：按下底色 */
+}
+QPushButton[sidebarButton="true"]:disabled {
+    color: {{text-disabled}};                  /* 灰 #9CA3AF */
+}
+
+/* 主题按钮 */
+SystemSidebar #themeButton {
+    color: {{btn-primary-bg}};                 /* 亮蓝 #3B82F6 */
+    font-weight: 500;
+}
+
+/* 退出登录按钮 */
+SystemSidebar #logoutButton {
+    color: {{text-secondary}};                 /* 中灰 #6B7280 */
+}
+
+/* 注销账号按钮 */
+SystemSidebar #deleteButton {
+    color: {{error-bg}};                       /* 红 #EF4444 */
+}
+SystemSidebar #deleteButton:hover {
+    /* 硬编码：主题红 10% 透明度，仅用于悬停背景 */
+    background-color: rgba(239, 68, 68, 0.10);
+    border-color: {{error-bg}};                /* 红 #EF4444 */
+}
+
+/* 收藏/生词本按钮 */
+SystemSidebar #collectButton,
+SystemSidebar #vocabularyButton {
+    color: {{text-primary}};                   /* 近黑 #111827 */
+}
+
+/* 展开/收起切换按钮 */
+SystemSidebar #toggleButton {
+    background-color: {{bg-secondary}};        /* 淡灰 #F3F4F6 */
+    color: {{text-secondary}};                 /* 中灰 #6B7280 */
+    font-weight: bold;
+    text-align: center;
+}
+SystemSidebar #toggleButton:hover {
+    background-color: {{border-color}};          /* 浅灰 #E5E7EB */
+    color: {{text-primary}};                     /* 近黑 #111827 */
+}
+
+/* 收起状态下按钮尺寸 */
+SystemSidebar[expanded="false"] #toggleButton {
+    min-width: 30px;
+    max-width: 30px;
+    min-height: 30px;
+    max-height: 30px;
+    padding: 0;
+    margin: 0;
+    border-radius: 6px;
+    font-size: 16px;
+    text-align: center;
+}
+
+SystemSidebar[expanded="false"] QPushButton[sidebarButton="true"] {
+    min-width: 30px;
+    max-width: 30px;
+    min-height: 30px;
+    padding: 0;
+    margin: 2px 0;
+    text-align: center;
+    font-size: 16px;
+}
+
+/* ================= WordCard 单词卡片基础样式 ================= */
+WordCard #cardWordLabel {
+    color: {{text-primary}};                   /* 近黑 #111827 */
+    font-size: 20px;
+    font-weight: bold;
+    background: transparent;
+}
+
+WordCard #cardPhoneticLabel {
+    color: {{text-secondary}};                 /* 中灰 #6B7280 */
+    font-size: 14px;
+    font-style: italic;
+    background: transparent;
+}
+
+WordCard #cardDefinitionLabel {
+    color: {{text-primary}};                   /* 近黑 #111827 */
+    font-size: 14px;
+    line-height: 1.6;
+    background: transparent;
+}
+
+/* 词性高亮（HTML class） */
+WordCard #cardDefinitionLabel .pos-highlight {
+    color: {{btn-primary-bg}};                 /* 亮蓝 #3B82F6 */
+    font-weight: bold;
+}
+
+WordCard #cardExampleLabel {
+    color: {{text-secondary}};                 /* 中灰 #6B7280 */
+    font-size: 13px;
+    background: transparent;
+    border-left: 3px solid {{btn-primary-bg}}; /* 亮蓝 #3B82F6 */
+    padding-left: 10px;
+    margin-top: 6px;
+}
+
+WordCard #cardTranslationLabel {
+    color: {{text-secondary}};                 /* 中灰 #6B7280 */
+    font-size: 13px;
+    background: transparent;
+    margin-top: 4px;
+}
+
+WordCard[uiState="Loading"] {
+    opacity: 0.7;
+}
+
+WordCard[uiState="Error"] {
+    border: 2px solid {{error-bg}};            /* 红 #EF4444 */
+}
+
+/* ================= InteractiveWordCard 交互式单词卡片 ================= */
+InteractiveWordCard {
+    background-color: {{bg-primary}};          /* 纯白 #FFFFFF：卡片背景 */
+    border: 1px solid {{border-color}};          /* 浅灰 #E5E7EB：卡片边框 */
+    border-radius: 8px;
+    padding: 0;
+}
+
+InteractiveWordCard:hover {
+     border: 1px solid {{input-focus}};              /* 亮蓝 #3B82F6：悬停边框 */
+}
+
+InteractiveWordCard #cardContent {
+    background-color: transparent;
+    padding: 16px 16px 8px 16px;
+}
+
+/* 按钮容器 - 与卡片自然过渡的浅灰条，替代原来突兀的爱丽丝蓝 */
+InteractiveWordCard #cardButtonContainer {
+    background-color: {{bg-secondary}};        /* 淡灰 #F3F4F6：比纯白卡片略暗，形成内凹分隔 */
+    border-top: 1px solid {{border-color}};    /* 浅灰 #E5E7EB：柔和分割线 */
+    border-radius: 0 0 7px 7px;
+    margin: 0 1.5px 1.5px 1.5px;
+    padding: 6px 16px;
+}
+
+InteractiveWordCard #cardButtonContainer QPushButton[actionType] {
+    background-color: transparent;
+    border: none;
+    border-radius: 4px;
+    padding: 4px;
+    color: {{text-secondary}};                 /* 中灰 #6B7280：默认灰色图标 */
+    font-size: 16px;
+    min-width: 24px;
+    min-height: 24px;
+}
+
+InteractiveWordCard #cardButtonContainer QPushButton[actionType]:hover {
+    background-color: {{bg-tertiary}};         /* 浅灰 #E5E7EB：悬停背景 */
+    color: {{text-primary}};                   /* 近黑 #111827：悬停加深 */
+}
+
+/* 收藏按钮 - 未激活 */
+InteractiveWordCard #cardButtonContainer #cardFavoriteBtn {
+    color: {{text-disabled}};                    /* 灰 #9CA3AF */
+}
+
+/* 收藏按钮 - 已激活 */
+InteractiveWordCard #cardButtonContainer #cardFavoriteBtn[active="true"] {
+    /* 硬编码琥珀金 #f59e0b：语义色（收藏/收藏），不随主题品牌色变化 */
+    color: #f59e0b;
+}
+
+/* 发音按钮 */
+InteractiveWordCard #cardButtonContainer #cardPronunciationBtn {
+    color: {{btn-primary-bg}};                   /* 亮蓝 #3B82F6 */
+}
+
+/* 生词本按钮 - 未激活 */
+InteractiveWordCard #cardButtonContainer #cardAddVocabBtn {
+    color: {{text-disabled}};                    /* 灰 #9CA3AF */
+}
+
+/* 生词本按钮 - 已激活 */
+InteractiveWordCard #cardButtonContainer #cardAddVocabBtn[active="true"] {
+    color: {{btn-primary-bg}};                   /* 亮蓝 #3B82F6 */
+}
+
+/* 更多操作按钮 */
+InteractiveWordCard #cardButtonContainer #cardMoreBtn {
+    color: {{text-secondary}};                   /* 中灰 #6B7280 */
+}
+
+/* 更多操作菜单 */
+InteractiveWordCard #cardMoreMenu {
+    background-color: {{bg-primary}};            /* 白 #FFFFFF */
+    border: 1px solid {{border-color}};        /* 浅灰 #E5E7EB */
+    border-radius: 6px;
+    padding: 4px;
+}
+
+InteractiveWordCard #cardMoreMenu::item {
+    padding: 6px 12px;
+    border-radius: 4px;
+    color: {{text-primary}};                     /* 近黑 #111827 */
+}
+
+InteractiveWordCard #cardMoreMenu::item:selected {
+    background-color: {{bg-secondary}};          /* 淡灰 #F3F4F6 */
+}
+
+InteractiveWordCard #cardMoreMenu::separator {
+    height: 1px;
+    background-color: {{border-color}};          /* 浅灰 #E5E7EB */
+    margin: 4px 0;
+}
+
+/* ==================== SearchBase ==================== */
+#searchBase {
+    background-color: transparent;
+}
+
+/* 输入框 */
+#searchInput {
+    width: 100%;
+    min-width: 400px;          /* 最小 400px，不再小气 */
+    max-width: none;           /* 取消上限，随容器伸缩 */
+    border: none;              /* 内层无边框，由外层 #searchWidget 统一控制 */
+    border-radius: 6px;
+    padding: 10px 14px;
+    font-size: 15px;
+    color: {{text-primary}};                   /* 近黑 #111827 */
+    background-color: transparent;             /* 透明底，让外层 #searchWidget 背景透出 */
+    selection-background-color: {{input-focus}}; /* 亮蓝 #3B82F6：选中文本背景 */
+}
+
+#searchInput:focus {
+    outline: none;
+}
+
+#searchInput::placeholder {
+    color: {{text-secondary}};                 /* 中灰 #6B7280：占位符 */
+    font-style: italic;
+}
+
+/* 搜索按钮 (Unicode 🔍) */
+#searchSubmitBtn {
+    background-color: {{btn-primary-bg}};      /* 亮蓝 #3B82F6：主题品牌色 */
+    color: {{btn-primary-text}};               /* 纯白 #FFFFFF */
+    border: none;
+    border-radius: 6px;
+    padding: 4px;
+    font-size: 18px;
+    font-weight: 500;
+    min-width: 36px;
+    max-width: 36px;
+    min-height: 36px;
+    max-height: 36px;
+    margin: 4px;
+}
+
+#searchSubmitBtn:hover {
+    background-color: {{btn-primary-hover}};   /* 深蓝 #2563EB */
+}
+
+#searchSubmitBtn:pressed {
+    background-color: {{btn-primary-pressed}}; /* 更深蓝 #1D4ED8 */
+}
+
+#searchSubmitBtn:disabled {
+    background-color: {{bg-tertiary}};         /* 浅灰 #E5E7EB */
+    color: {{text-disabled}};                    /* 灰 #9CA3AF */
+}
+
+/* 清除按钮 (Unicode ✕) */
+#searchClearBtn {
+    color: {{text-secondary}};                 /* 中灰 #6B7280 */
+    background-color: transparent;
+    border: 2px solid transparent;
+    border-radius: 6px;
+    padding: 4px;
+    font-size: 16px;
+    font-weight: bold;
+    min-width: 28px;
+    max-width: 28px;
+    min-height: 28px;
+    max-height: 28px;
+}
+
+#searchClearBtn:hover {
+    color: {{input-focus}};                    /* 亮蓝 #3B82F6 */
+}
+
+#searchClearBtn:pressed {
+    color: {{btn-primary-pressed}};              /* 更深蓝 #1D4ED8 */
+}
+
+/* ==================== SearchHistoryWidget ==================== */
+
+/* 历史弹出容器 */
+#historyContainer {
+    background-color: {{bg-primary}};          /* 白 #FFFFFF */
+    border: 1px solid {{border-color}};        /* 浅灰 #E5E7EB */
+    border-radius: 6px;
+}
+
+/* 历史列表 */
+#historyList {
+    background-color: transparent;
+    border: none;
+    outline: none;
+}
+
+#historyList::item {
+    color: {{text-primary}};                   /* 近黑 #111827 */
+    border-radius: 4px;
+    padding: 6px 8px;
+}
+
+#historyList::item:hover {
+    /* 硬编码：主题蓝 12% 透明度，列表悬停底色（QSS 不支持对变量做 rgba 运算） */
+    background-color: rgba(59, 130, 246, 0.12);
+}
+
+#historyList::item:selected {
+    /* 硬编码：主题蓝 20% 透明度，选中底色 */
+    background-color: rgba(59, 130, 246, 0.20);
+}
+
+/* 历史列表滚动条 */
+#historyList QScrollBar:vertical {
+    border: none;
+    background-color: transparent;
+    width: 6px;
+}
+
+#historyList QScrollBar::handle:vertical {
+    background-color: {{scroll-handle}};         /* 浅灰 #D1D5DB */
+    border-radius: 3px;
+}
+
+#historyList QScrollBar::handle:vertical:hover {
+    background-color: {{scroll-hover}};          /* 中灰 #9CA3AF */
+}
+
+/* 清除历史按钮 */
+#clearHistoryButton {
+    color: {{text-secondary}};                 /* 中灰 #6B7280 */
+    background-color: transparent;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    padding: 6px;
+    font-size: 12px;
+}
+
+#clearHistoryButton:hover {
+    /* 硬编码：主题蓝 12% 透明度 */
+    background-color: rgba(59, 130, 246, 0.12);
+    border-color: {{border-color}};            /* 浅灰 #E5E7EB */
+}
+
+/* 折叠按钮 */
+#foldHistoryButton {
+    color: {{text-secondary}};                 /* 中灰 #6B7280 */
+    background-color: transparent;
+    border: 1px solid {{border-color}};        /* 浅灰 #E5E7EB */
+    border-radius: 4px;
+    padding: 4px 10px;
+    font-size: 12px;
+    min-width: 60px;
+}
+
+#foldHistoryButton:hover {
+    /* 硬编码：主题蓝 10% 透明度 */
+    background-color: rgba(59, 130, 246, 0.10);
+    border-color: {{input-focus}};             /* 亮蓝 #3B82F6 */
+    color: {{input-focus}};                    /* 亮蓝 #3B82F6 */
+}
+
+/* =========================================================
+   MainPage 组件样式（亮色主题）
+   ========================================================= */
+
+/* 页面根背景 */
+#mainPage, #MainPage, #mainContentArea {
+    /* 淡灰 #F3F4F6：主窗口底色，与纯白内容区形成纸张层级感 */
+    background-color: {{bg-primary}};
+}
+
+/* 标题：网络词典 */
+#searchTitleLabel {
+    font-size: 28px;
+    font-weight: bold;
+    /* 近黑 #111827：标题文字，高对比度确保可读性 */
+    color: {{text-primary}};
+    margin: 20px 0px 20px 0px;
+    padding: 10px;
+}
+
+/* 搜索外层容器 */
+#searchContainer {
+    background-color: transparent;             /* 透明：让主背景灰透出 */
+    border: none;
+    border-radius: 8px;
+    padding: 0 20px;
+}
+
+/* 搜索组件本体（SearchHistoryWidget） */
+#searchWidget {
+    background-color: {{bg-primary}};          /* 纯白 #FFFFFF：输入区域背景 */
+    border: 1px solid {{border-color}};        /* 浅灰 #E5E7EB：默认边框 */
+    border-radius: 8px;                        /* 与卡片统一圆角体系 */
+    color: {{text-primary}};                   /* 近黑 #111827 */
+}
+
+#searchWidget:focus-within,
+#searchWidget:hover {
+    border: 1px solid {{input-focus}};         /* 亮蓝 #3B82F6：交互高亮 */
+}
+
+/* 内容滚动区域 */
+#contentScrollArea {
+    border: 1px solid #F2F2F2;                                /* 去掉死板的 2px 实线画框 */
+    border-radius: 12px;                       /* 稍大圆角，暗示最外层容器 */
+    background-color: {{bg-primary}};          /* 纯白 #FFFFFF：干净的阅读面 */
+    margin: 20px;
+}
+
+#contentScrollArea QScrollBar:vertical {
+    background: {{scroll-bg}};            /* 淡灰 #F3F4F6 */
+    width: 12px;
+    border: none;
+    border-radius: 6px;
+    margin: 2px 0px;
+}
+
+#contentScrollArea QScrollBar::handle:vertical {
+    background: {{scroll-handle}};        /* 浅灰 #D1D5DB */
+    border-radius: 6px;
+    min-height: 40px;
+}
+
+#contentScrollArea QScrollBar::handle:vertical:hover {
+    background: {{scroll-hover}};         /* 中灰 #9CA3AF */
+}
+
+#contentScrollArea QScrollBar::add-line:vertical,
+#contentScrollArea QScrollBar::sub-line:vertical {
+    height: 0px;
+    background: transparent;
+    border: none;
+}
+
+/* 关键：页面区域透明 */
+#contentScrollArea QScrollBar::add-page:vertical,
+#contentScrollArea QScrollBar::sub-page:vertical {
+    background: none;
+    border: none;
+}
+/* 内容载体（透明，让滚动区背景透出） */
+#contentWidget {
+    background-color: transparent;
+}
+
+/* 欢迎文本 */
+#welcomeLabel {
+    font-size: 18px;
+    color: {{text-secondary}};                 /* 中灰 #6B7280：辅助说明 */
+    margin: 50px 0px 50px 0px;
+    padding: 20px;
+}
+
+/* 搜索结果：无结果提示 */
+#noResultsLabel {
+    font-size: 16px;
+    color: {{text-disabled}};                  /* 灰 #9CA3AF：空状态低权重 */
+    padding: 20px;
+}
+
+/* 搜索结果：普通条目 */
+#resultLabel {
+    font-size: 14px;
+    color: {{text-primary}};                     /* 近黑 #111827：正文阅读色 */
+    padding: 8px;
+    border-bottom: 1px solid {{border-color}}; /* 浅灰 #E5E7EB：分隔线 */
+}
+
+/* 当前单词卡片（InteractiveWordCard 的外层控制） */
+#currentWordCard {
+    background-color: {{bg-primary}};
+    /* 删除 border 定义，继承 InteractiveWordCard 的 border */
+    border-radius: 8px;
+}
+
+/* 侧边栏 */
+#systemSidebar {
+    /* 浅灰 #E5E7EB：比主背景 #F3F4F6 略深，形成自然边界，不再突兀 */
+    background-color: {{bg-primary}};
+    border: 1px solid #F2F2F2;
+}
+
+/* =========================================================
+   LoginPage 组件样式
+   ========================================================= */
+
+/* 登录卡片：固定宽度 400px，阴影效果，垂直水平居中 */
+#loginCard {
+    background-color: {{bg-primary}};
+    border: 1px solid {{border-color}};
+    border-radius: 16px;
+    /* 硬编码阴影：暗色主题用深色阴影，亮色主题用浅灰阴影 */
+    /* 注意：QSS 不支持变量在 box-shadow 中，需要分别写到 dark/light 文件 */
+}
+
+/* 暗色主题专用阴影（写到 dark.qss） */
+/*
+#loginCard {
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+*/
+
+/* 亮色主题专用阴影（写到 light.qss） */
+#loginCard {
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
+}
+
+/* 标题 */
+#loginTitle {
+    font-size: 24px;
+    font-weight: bold;
+    color: {{text-primary}};
+    margin: 0 0 8px 0;
+    background: transparent;
+}
+
+/* 表单标签 */
+#loginCard QFormLayout QLabel {
+    color: {{text-primary}};
+    font-size: 14px;
+    font-weight: 500;
+    padding: 0;
+    background: transparent;
+}
+
+/* 输入框 */
+QLineEdit#input_account,
+QLineEdit#input_password {
+    min-height: 40px;
+    padding: 8px 12px;
+    font-size: 14px;
+}
+
+/* 错误态 */
+QLineEdit#input_account[validationState="error"],
+QLineEdit#input_password[validationState="error"] {
+    border: 1px solid {{error-bg}};
+    background-color: rgba(239, 68, 68, 0.05);
+}
+
+/* 错误提示 */
+QLabel#err_account,
+QLabel#err_password {
+    color: {{error-bg}};
+    font-size: 12px;
+    padding: 4px 0 0 0;
+    background: transparent;
+    min-height: 18px;
+}
+
+/* 记住我复选框 */
+QCheckBox#rememberCheckbox {
+    color: {{text-primary}};
+    font-size: 13px;
+    spacing: 6px;
+}
+
+/* 忘记密码链接 */
+QPushButton#forgotPasswordLink {
+    color: {{text-secondary}};
+    font-size: 13px;
+    text-decoration: underline;
+    border: none;
+    padding: 0;
+    background: transparent;
+    margin-left: 8px;
+}
+QPushButton#forgotPasswordLink:hover {
+    color: {{btn-primary-bg}};
+}
+
+/* 登录提交按钮 */
+QPushButton#loginSubmitBtn {
+    font-size: 15px;
+    font-weight: 600;
+    border-radius: 8px;
+    /* 继承全局 QPushButton 颜色，仅覆盖尺寸 */
+}
+
+/* 切换注册链接 */
+QLabel#switchRegisterLink {
+    color: {{text-secondary}};
+    font-size: 13px;
+    background: transparent;
+}
+/* RichText 链接颜色 */
+QLabel#switchRegisterLink a {
+    color: {{btn-primary-bg}};
+    text-decoration: none;
+}
+QLabel#switchRegisterLink a:hover {
+    text-decoration: underline;
+}
+
+/* =========================================================
+   RegisterPage 组件样式（暗色主题）
+   ========================================================= */
+
+/* 注册卡片 */
+#registerCard {
+    background-color: {{bg-primary}};
+    border: 1px solid {{border-color}};
+    border-radius: 16px;
+    /* 亮色主题：柔和阴影 */
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
+}
+
+/* 标题 */
+#registerTitle {
+    font-size: 24px;
+    font-weight: bold;
+    color: {{text-primary}};
+    margin: 0 0 8px 0;
+    background: transparent;
+}
+
+/* 表单标签 */
+#registerCard QFormLayout QLabel {
+    color: {{text-primary}};
+    font-size: 14px;
+    font-weight: 500;
+    padding: 0;
+    background: transparent;
+}
+
+/* 输入框统一尺寸 */
+QLineEdit#input_username,
+QLineEdit#input_email,
+QLineEdit#input_password,
+QLineEdit#input_confirm {
+    min-height: 40px;
+    padding: 8px 12px;
+    font-size: 14px;
+}
+
+/* 错误态：红边框 + 淡红底色 */
+QLineEdit#input_username[validationState="error"],
+QLineEdit#input_email[validationState="error"],
+QLineEdit#input_password[validationState="error"],
+QLineEdit#input_confirm[validationState="error"] {
+    border: 1px solid {{error-bg}};
+    background-color: rgba(239, 68, 68, 0.05);
+}
+
+/* 错误提示文字 */
+QLabel#err_username,
+QLabel#err_email,
+QLabel#err_password,
+QLabel#err_confirm {
+    color: {{error-bg}};
+    font-size: 12px;
+    padding: 4px 0 0 0;
+    background: transparent;
+    min-height: 18px;
+}
+
+/* 头像占位框 */
+#avatarLabel {
+    background-color: {{bg-tertiary}};
+    color: {{text-secondary}};
+    border: 1px dashed {{border-color}};
+    border-radius: 8px;
+    font-size: 28px;
+    min-width: 60px;
+    max-width: 60px;
+    min-height: 60px;
+    max-height: 60px;
+}
+
+/* 头像选择按钮（次级按钮风格） */
+#avatarButton {
+    background-color: {{btn-secondary-bg}};
+    color: {{btn-secondary-text}};
+    border-radius: 6px;
+    padding: 6px 12px;
+}
+#avatarButton:hover {
+    background-color: {{btn-secondary-hover}};
+}
+
+/* 条款复选框 */
+QCheckBox#termsCheckbox {
+    color: {{text-primary}};
+    font-size: 13px;
+    spacing: 6px;
+}
+
+/* 查看协议按钮 */
+QPushButton#termsButton {
+    color: {{text-secondary}};
+    font-size: 12px;
+    text-decoration: underline;
+    border: none;
+    padding: 0;
+    background: transparent;
+}
+QPushButton#termsButton:hover {
+    color: {{btn-primary-bg}};
+}
+
+/* 注册提交按钮 */
+QPushButton#registerSubmitBtn {
+    font-size: 15px;
+    font-weight: 600;
+    border-radius: 8px;
+}
+
+/* 切换登录链接 */
+QLabel#switchLoginLink {
+    color: {{text-secondary}};
+    font-size: 13px;
+    background: transparent;
+}
+QLabel#switchLoginLink a {
+    color: {{btn-primary-bg}};
+    text-decoration: none;
+}
+QLabel#switchLoginLink a:hover {
+    text-decoration: underline;
+}
+
+/* 主内容区域 */
+#contentArea {
+    background-color: {{bg-secondary}};        /* 淡灰 #F3F4F6 */
+    border: none;
+}
+
+/* =========================================================
+   CollectePage 收藏页面 组件样式（亮色主题）
+   ========================================================= */
+
+/* 页面根背景 */
+#collectPage {
+    background-color: {{bg-primary}};
+}
+
+/* 顶部工具栏 */
+#collectHeaderBar {
+    background-color: transparent;
+    border: none;
+}
+
+/* 标题 */
+#collectTitleLabel {
+    font-size: 20px;
+    font-weight: bold;
+    color: {{text-primary}};
+    background: transparent;
+    padding: 0;
+}
+
+/* 返回按钮 */
+QPushButton#collectBackBtn {
+    background-color: {{bg-primary}};
+    color: {{text-primary}};
+    border: 1px solid {{border-color}};
+    border-radius: 6px;
+    font-size: 18px;
+    padding: 0;
+}
+QPushButton#collectBackBtn:hover {
+    background-color: {{bg-tertiary}};
+    border-color: {{input-focus}};
+    color: {{input-focus}};
+}
+
+/* 刷新按钮 */
+QPushButton#collectRefreshBtn {
+    background-color: {{bg-primary}};
+    color: {{text-secondary}};
+    border: 1px solid {{border-color}};
+    border-radius: 6px;
+    font-size: 16px;
+    padding: 0;
+}
+QPushButton#collectRefreshBtn:hover {
+    background-color: {{bg-tertiary}};
+    border-color: {{input-focus}};
+    color: {{input-focus}};
+}
+
+/* 导出按钮（次级按钮风格） */
+QPushButton#collectExportExcelBtn,
+QPushButton#collectExportPdfBtn {
+    background-color: {{btn-secondary-bg}};
+    color: {{btn-secondary-text}};
+    border: 1px solid {{border-color}};
+    border-radius: 6px;
+    padding: 6px 14px;
+    font-size: 13px;
+}
+QPushButton#collectExportExcelBtn:hover,
+QPushButton#collectExportPdfBtn:hover {
+    background-color: {{btn-secondary-hover}};
+    border-color: {{btn-secondary-hover}};
+}
+
+/* 单词卡片滚动区域 */
+#collectScrollArea {
+    border: 1px solid {{border-color}};
+    border-radius: 12px;
+    background-color: {{bg-secondary}};
+    margin: 4px;
+}
+
+#collectScrollArea QScrollBar:vertical {
+    background: {{scroll-bg}};
+    width: 12px;
+    border: none;
+    border-radius: 6px;
+    margin: 2px 0px;
+}
+
+#collectScrollArea QScrollBar::handle:vertical {
+    background: {{scroll-handle}};
+    border-radius: 6px;
+    min-height: 40px;
+}
+
+#collectScrollArea QScrollBar::handle:vertical:hover {
+    background: {{scroll-hover}};
+}
+
+#collectScrollArea QScrollBar::add-line:vertical,
+#collectScrollArea QScrollBar::sub-line:vertical {
+    height: 0px;
+    background: transparent;
+    border: none;
+}
+
+#collectScrollArea QScrollBar::add-page:vertical,
+#collectScrollArea QScrollBar::sub-page:vertical {
+    background: none;
+    border: none;
+}
+
+/* 内容载体 */
+#collectContentWidget {
+    background-color: transparent;
+}
+
+/* 空列表提示 */
+#collectEmptyLabel {
+    font-size: 16px;
+    color: {{text-disabled}};
+    background: transparent;
+    padding: 20px;
+}
+
+/* 收藏单词卡片 */
+#collectWordCard {
+    background-color: {{bg-primary}};
+    border-radius: 8px;
+}
+
+/* =========================================================
+   VocabularyPage 生词本页面 组件样式（亮色主题）
+   ========================================================= */
+
+/* 页面根背景 */
+#vocabularyPage {
+    background-color: {{bg-primary}};
+}
+
+/* 顶部工具栏 */
+#vocabularyHeaderBar {
+    background-color: transparent;
+    border: none;
+}
+
+/* 标题 */
+#vocabularyTitleLabel {
+    font-size: 20px;
+    font-weight: bold;
+    color: {{text-primary}};
+    background: transparent;
+    padding: 0;
+}
+
+/* 返回按钮 */
+QPushButton#vocabularyBackBtn {
+    background-color: {{bg-primary}};
+    color: {{text-primary}};
+    border: 1px solid {{border-color}};
+    border-radius: 6px;
+    font-size: 18px;
+    padding: 0;
+}
+QPushButton#vocabularyBackBtn:hover {
+    background-color: {{bg-tertiary}};
+    border-color: {{input-focus}};
+    color: {{input-focus}};
+}
+
+/* 刷新按钮 */
+QPushButton#vocabularyRefreshBtn {
+    background-color: {{bg-primary}};
+    color: {{text-secondary}};
+    border: 1px solid {{border-color}};
+    border-radius: 6px;
+    font-size: 16px;
+    padding: 0;
+}
+QPushButton#vocabularyRefreshBtn:hover {
+    background-color: {{bg-tertiary}};
+    border-color: {{input-focus}};
+    color: {{input-focus}};
+}
+
+/* 导出按钮（次级按钮风格） */
+QPushButton#vocabularyExportExcelBtn,
+QPushButton#vocabularyExportPdfBtn {
+    background-color: {{btn-secondary-bg}};
+    color: {{btn-secondary-text}};
+    border: 1px solid {{border-color}};
+    border-radius: 6px;
+    padding: 6px 14px;
+    font-size: 13px;
+}
+QPushButton#vocabularyExportExcelBtn:hover,
+QPushButton#vocabularyExportPdfBtn:hover {
+    background-color: {{btn-secondary-hover}};
+    border-color: {{btn-secondary-hover}};
+}
+
+/* 单词卡片滚动区域 */
+#vocabularyScrollArea {
+    border: 1px solid {{border-color}};
+    border-radius: 12px;
+    background-color: {{bg-secondary}};
+    margin: 4px;
+}
+
+#vocabularyScrollArea QScrollBar:vertical {
+    background: {{scroll-bg}};
+    width: 12px;
+    border: none;
+    border-radius: 6px;
+    margin: 2px 0px;
+}
+
+#vocabularyScrollArea QScrollBar::handle:vertical {
+    background: {{scroll-handle}};
+    border-radius: 6px;
+    min-height: 40px;
+}
+
+#vocabularyScrollArea QScrollBar::handle:vertical:hover {
+    background: {{scroll-hover}};
+}
+
+#vocabularyScrollArea QScrollBar::add-line:vertical,
+#vocabularyScrollArea QScrollBar::sub-line:vertical {
+    height: 0px;
+    background: transparent;
+    border: none;
+}
+
+#vocabularyScrollArea QScrollBar::add-page:vertical,
+#vocabularyScrollArea QScrollBar::sub-page:vertical {
+    background: none;
+    border: none;
+}
+
+/* 内容载体 */
+#vocabularyContentWidget {
+    background-color: transparent;
+}
+
+/* 空列表提示 */
+#vocabularyEmptyLabel {
+    font-size: 16px;
+    color: {{text-disabled}};
+    background: transparent;
+    padding: 20px;
+}
+
+/* 生词单词卡片 */
+#vocabularyWordCard {
+    background-color: {{bg-primary}};
+    border-radius: 8px;
+}

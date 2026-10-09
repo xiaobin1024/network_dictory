@@ -1,0 +1,18 @@
+<RCC>
+    <qresource prefix="/">
+        <file>styles/dark.qss</file>
+        <file>styles/light.qss</file>
+        <file>img/dark/col_vocabulary.png</file>
+        <file>img/dark/more_actions.png</file>
+        <file>img/dark/speaker.png</file>
+        <file>img/dark/star_bright.png</file>
+        <file>img/dark/star_gray.png</file>
+        <file>img/dark/vocabulary.png</file>
+        <file>img/light/col_vocabulary.png</file>
+        <file>img/light/more_actions.png</file>
+        <file>img/light/speaker.png</file>
+        <file>img/light/star_bright.png</file>
+        <file>img/light/star_gray.png</file>
+        <file>img/light/vocabulary.png</file>
+    </qresource>
+</RCC>
