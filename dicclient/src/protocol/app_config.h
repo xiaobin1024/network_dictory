@@ -20,7 +20,7 @@
             // 非法或越界的端口值回退到默认端口，避免配置静默失效
             return (ok && port > 0 && port < 65536) ? port : 8080;
         }()};
-        int heartbeatInterval{10000}; //心跳间隔（毫秒）；配合存活看门狗，断网检测最坏≈15s，远快于被动等 TCP RTO(~20s)
+        int heartbeatInterval{5000}; //心跳间隔（毫秒）；配合存活看门狗(PING超时5s)，断网检测最坏≈10s，典型~3~5s，远快于被动等 TCP RTO(~20s)
         int reconnectInterval{3000}; //重连间隔（毫秒）
         int maxReconnectAttempts{100};//最大重连次数
 
