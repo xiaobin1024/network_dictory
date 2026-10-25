@@ -44,15 +44,20 @@ jobs:
           echo "server failed to start"
           exit 1
 
-      - name: 协议测试（查词 / 生词本收藏 / 死连接踢除）
+      - name: CTest（LRU 缓存 / 协议帧编解码）
+        working-directory: dicserver/build
+        run: ctest --output-on-failure
+
+      - name: 协议测试（v1 定长 / v2 变长帧 / 死连接踢除）
         working-directory: dicserver
         env:
           DICT_HOST: 127.0.0.1
           DICT_PORT: 18080
         run: |
-          python3 test/test_dict.py
-          python3 test/test_vocabulary.py
-          python3 test/test_kick.py
+          python3 test/test_dict.py         # v1：注册/登录/查词/收藏/密码哈希
+          python3 test/test_vocabulary.py   # v1：生词本/注销
+          python3 test/test_protocol_v2.py  # v2：往返/半包/粘包/非法帧
+          python3 test/test_kick.py         # 死连接踢除
 
       - name: 停止服务实例
         if: always()
