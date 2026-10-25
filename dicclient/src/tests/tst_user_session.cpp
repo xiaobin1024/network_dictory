@@ -160,7 +160,7 @@ protected:
         testPassword = "TestPassword123";
 
         qDebug() << "测试用户名:" << testUsername;
-        qDebug() << "服务器地址: 192.168.23.132:8080";
+        qDebug() << "服务器地址取自 app_config（默认生产 47.100.244.110:8080，可用 DICT_SERVER_IP/DICT_SERVER_PORT 覆盖）";
     }
 
     void TearDown() override {

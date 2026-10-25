@@ -48,6 +48,10 @@ TEST(NetworkManagerTest,NetworkManagerNextConnectTest)
     manager->connectToServer();
     //等待建立连接
     QTest::qWait(500);
+    if (!manager->isConnected()) {
+        delete manager;
+        GTEST_SKIP() << "无法连接到服务器，跳过网络相关测试";
+    }
 
 
     int initialMessages = 500;

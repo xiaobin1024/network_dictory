@@ -124,7 +124,7 @@ protected:
 
         qDebug() << "测试用户名:" << testUsername;
         qDebug() << "测试邮箱:" << testEmail;
-        qDebug() << "服务器地址: 192.168.23.132:8080";
+        qDebug() << "服务器地址取自 app_config（默认生产 47.100.244.110:8080，可用 DICT_SERVER_IP/DICT_SERVER_PORT 覆盖）";
         qDebug() << "模块初始化完成";
     }
 
@@ -648,12 +648,19 @@ TEST_F(PageControllerIntegrationTestFixture, MainPageTest) {
     // 注销流程会依次弹出两个模态框：确认框（QMessageBox::question）与
     // 密码输入框（QInputDialog::getText）。模态框开启嵌套事件循环并阻塞
     // 测试线程，若无人点击，测试将永远卡在确认框上（表现为 ctest 超时）。
-    // 用 singleShot 在嵌套循环中自动处理，与 tst_composite_module 保持一致。
+    // 注销流程会依次弹出两个模态框：确认框（QMessageBox::question）与
+    // 密码输入框（QInputDialog::getText）。模态框开启嵌套事件循环并阻塞
+    // 测试线程，若无人点击，测试将永远卡在确认框上（表现为 ctest 超时）。
+    // 用轮询定时器（每 50ms）在嵌套循环中自动处理：两个弹窗出现时机有
+    // 先后，轮询比单次 singleShot(0/200) 更可靠，能确保无论哪个先出现都
+    // 能被捕获，避免偶发"卡满 8 秒超时"（之前有时被手动点了取消导致失败）。
     QSignalSpy unregisterSuccessSpy(userSession, &UserSession::unregisterSuccess);
     QSignalSpy unregisterFailedSpy(userSession, &UserSession::unregisterFailed);
 
-    // 第一个模态框：确认注销，点击 Yes
-    QTimer::singleShot(0, []() {
+    QTimer dialogHandler;
+    dialogHandler.setInterval(50);
+    dialogHandler.setSingleShot(false);
+    QObject::connect(&dialogHandler, &QTimer::timeout, [this]() {
         for (QWidget* w : QApplication::topLevelWidgets()) {
             if (auto* box = qobject_cast<QMessageBox*>(w)) {
                 if (auto* yes = box->button(QMessageBox::Yes)) {
@@ -661,11 +668,6 @@ TEST_F(PageControllerIntegrationTestFixture, MainPageTest) {
                 }
                 return;
             }
-        }
-    });
-    // 第二个模态框：输入密码，点击 OK
-    QTimer::singleShot(200, [this]() {
-        for (QWidget* w : QApplication::topLevelWidgets()) {
             if (auto* input = qobject_cast<QInputDialog*>(w)) {
                 if (auto* edit = input->findChild<QLineEdit*>()) {
                     edit->setText(testPassword);
@@ -679,6 +681,7 @@ TEST_F(PageControllerIntegrationTestFixture, MainPageTest) {
             }
         }
     });
+    dialogHandler.start();
 
     // 点击注销账号按钮
     QTest::mouseClick(deleteButton, Qt::LeftButton);
@@ -686,6 +689,7 @@ TEST_F(PageControllerIntegrationTestFixture, MainPageTest) {
     // 等待注销完成。unregisterFailed 同样算完成（例如密码不符或账号已注销），
     // 此处只验证流程闭环，不断言业务结果。
     bool unregisterDone = unregisterSuccessSpy.wait(8000) || unregisterFailedSpy.wait(8000);
+    dialogHandler.stop();
     EXPECT_TRUE(unregisterDone) << "注销操作未在 8 秒内完成";
     qDebug() << "注销流程结束: success=" << unregisterSuccessSpy.count()
              << " failed=" << unregisterFailedSpy.count();
