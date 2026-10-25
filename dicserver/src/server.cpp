@@ -568,7 +568,7 @@ void Server::responseHistory(int cfd, Msg &msg)
         Msg emptyMsg;
         memset(&emptyMsg, 0, sizeof(emptyMsg));
         emptyMsg.type = H;
-        strncpy(emptyMsg.name, msg.name, sizeof(emptyMsg.name));
+        safeStrcpy(emptyMsg.name, NAME_BUF_SIZE, msg.name);
         safeStrcpy(emptyMsg.text, TEXT_BUF_SIZE, "**EMPTY**");
         emptyMsg.networkByteOrder();
         send(cfd, &emptyMsg, sizeof(emptyMsg), 0);
@@ -582,8 +582,7 @@ void Server::responseHistory(int cfd, Msg &msg)
             memset(&response, 0, sizeof(response));
             response.type = H;
             safeStrcpy(response.name, NAME_BUF_SIZE, msg.name);
-            strncpy(response.text, historyRecords[i].c_str(), sizeof(response.text) - 1);
-            response.text[sizeof(response.text) - 1] = '\0';
+            safeStrcpy(response.text, TEXT_BUF_SIZE, historyRecords[i].c_str());
             response.networkByteOrder();
 
             ssize_t bytesSent = 0;
@@ -605,7 +604,7 @@ void Server::responseHistory(int cfd, Msg &msg)
                         Msg errorMsg;
                         memset(&errorMsg,0,sizeof(errorMsg));
                         errorMsg.type=H;
-                        strncpy(errorMsg.name,msg.name,sizeof(errorMsg.name));
+                        safeStrcpy(errorMsg.name, NAME_BUF_SIZE, msg.name);
                         safeStrcpy(errorMsg.text, TEXT_BUF_SIZE, "**ERROR**");
                         errorMsg.networkByteOrder();
                         send(cfd,&errorMsg,sizeof(errorMsg),MSG_DONTWAIT);
@@ -627,7 +626,7 @@ void Server::responseHistory(int cfd, Msg &msg)
     Msg overMsg;
     memset(&overMsg, 0, sizeof(overMsg));
     overMsg.type = H;
-    strncpy(overMsg.name, msg.name, sizeof(overMsg.name));
+    safeStrcpy(overMsg.name, NAME_BUF_SIZE, msg.name);
     safeStrcpy(overMsg.text, TEXT_BUF_SIZE, "**OVER**");
     overMsg.networkByteOrder();
 
@@ -774,7 +773,7 @@ void Server::responseCollectRecord(int cfd, Msg &msg)
         Msg emptyMsg;
         memset(&emptyMsg, 0, sizeof(emptyMsg));
         emptyMsg.type = D;
-        strncpy(emptyMsg.name, msg.name, sizeof(emptyMsg.name));
+        safeStrcpy(emptyMsg.name, NAME_BUF_SIZE, msg.name);
         safeStrcpy(emptyMsg.text, TEXT_BUF_SIZE, "**EMPTY**");
         emptyMsg.networkByteOrder();
         send(cfd, &emptyMsg, sizeof(emptyMsg), 0);
@@ -788,8 +787,7 @@ void Server::responseCollectRecord(int cfd, Msg &msg)
             memset(&response, 0, sizeof(response));
             response.type = D;
             safeStrcpy(response.name, NAME_BUF_SIZE, msg.name);
-            strncpy(response.text, record.c_str(), sizeof(response.text) - 1);
-            response.text[sizeof(response.text) - 1] = '\0';
+            safeStrcpy(response.text, TEXT_BUF_SIZE, record.c_str());
             response.networkByteOrder();
 
             if (send(cfd, &response, sizeof(response), 0) < 0)
@@ -804,7 +802,7 @@ void Server::responseCollectRecord(int cfd, Msg &msg)
     Msg overMsg;
     memset(&overMsg, 0, sizeof(overMsg));
     overMsg.type = D;
-    strncpy(overMsg.name, msg.name, sizeof(overMsg.name));
+    safeStrcpy(overMsg.name, NAME_BUF_SIZE, msg.name);
     safeStrcpy(overMsg.text, TEXT_BUF_SIZE, "**OVER**");
     overMsg.networkByteOrder();
 
