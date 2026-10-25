@@ -1,4 +1,5 @@
 #include"network_manager.h"
+#include<QDateTime>
 NetworkManager::NetworkManager(QObject* parent,const AppConfig& config):
     QObject(parent),
     m_reconnectInterval(config.reconnectInterval),
@@ -23,6 +24,12 @@ NetworkManager::NetworkManager(QObject* parent,const AppConfig& config):
     m_heartbeatTimer->setInterval(m_heartbeatInterval);
     connect(m_heartbeatTimer, &QTimer::timeout,
             this, &NetworkManager::onHeartbeatTimeout);
+    // 存活看门狗：周期性检查心跳往返是否超时，超时则主动 abort 连接，
+    // 避免静默断网时被动等待 TCP 重传超时（Windows 上约 20s）才被发现。
+    m_livenessTimer = new QTimer(this);
+    m_livenessTimer->setInterval(kLivenessCheckMs);
+    connect(m_livenessTimer, &QTimer::timeout,
+            this, &NetworkManager::onLivenessCheck);
     // 设置连接
     setupConnections();
 
@@ -73,6 +80,11 @@ void NetworkManager::onConnectionEstablished()
         m_heartbeatTimer->start();
     }
 
+    // 重置存活看门狗状态并启动：以当前时间为基线，避免历史残留导致误判
+    m_pendingPing = false;
+    m_lastActivityMs = QDateTime::currentMSecsSinceEpoch();
+    m_livenessTimer->start();
+
     // 连接建立时立即处理积压队列
     if(!m_messageQueueManager->isEmpty())
     {
@@ -84,8 +96,10 @@ void NetworkManager::onConnectionEstablished()
 void NetworkManager::onConnectionLost()
 {
     qDebug() << "Disconnected from server";
-    // 连接断开后停止心跳，重连成功后再恢复
+    // 连接断开后停止心跳与存活看门狗，重连成功后再恢复
     m_heartbeatTimer->stop();
+    m_livenessTimer->stop();
+    m_pendingPing = false;
     emit connectionLost();
 
     // 自动重连
@@ -114,8 +128,17 @@ void NetworkManager::onSocketReadyRead()
 {
     qDebug()<<"进入NetworkManager::onSocketReadyRead()";
     QVector<CoreMessage::Msg> messages=m_connectionManager->readMessages();
-    // 对每条消息，直接发射信号，不进行任何处理
+    // 收到服务端任何数据都说明链路存活，刷新活动时间；
+    // 其中 type==HEARTBEAT 的回包即服务端对心跳的 ALIVE 应答，清除待确认标记。
+    if(!messages.isEmpty())
+    {
+        m_lastActivityMs = QDateTime::currentMSecsSinceEpoch();
+    }
     for (const auto& message : messages) {
+        if(message.type == CoreMessage::MsgType::HEARTBEAT)
+        {
+            m_pendingPing = false;
+        }
         qDebug() << "NetworkManager 转发原始消息:" << message;
         emit messageReceived(message);
     }
@@ -220,6 +243,9 @@ void NetworkManager::sendHeartbeat()
     memset(&heartbeat, 0, sizeof(heartbeat));
     heartbeat.type = CoreMessage::MsgType::HEARTBEAT;
     strncpy(heartbeat.text, "PING", sizeof(heartbeat.text) - 1);
+    // 记录已发出心跳，等待服务端 ALIVE 回包；存活看门狗据此判定往返是否超时
+    m_pendingPing = true;
+    m_pingSentMs = QDateTime::currentMSecsSinceEpoch();
     // 心跳为实时保活包，直接发送不入队，避免断线重连后补发过期心跳
     sendRawMessage(heartbeat);
     emit heartbeatSent();
@@ -228,4 +254,35 @@ void NetworkManager::sendHeartbeat()
 void NetworkManager::onHeartbeatTimeout()
 {
     sendHeartbeat();
+}
+
+void NetworkManager::onLivenessCheck()
+{
+    if(!isConnected())
+    {
+        return;
+    }
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+
+    // 主判定：已发出心跳但超过 kPingTimeoutMs 仍未收到服务端 ALIVE
+    // → 链路已死，主动 abort 连接（绕过 TCP 重传超时 ~20s），
+    // abort 会触发 disconnected() → connectionLost()，进入既有的遮罩+重连流程。
+    if(m_pendingPing && (now - m_pingSentMs > kPingTimeoutMs))
+    {
+        qDebug() << "心跳往返超时（>" << kPingTimeoutMs
+                 << "ms 未收到 ALIVE），主动断开连接";
+        m_connectionManager->abortConnection();
+        return;
+    }
+
+    // 兜底：长时间无任何服务端数据（超过约两个心跳周期+超时）也判定死亡，
+    // 覆盖「心跳尚未发出但连接已悄悄断掉」的窗口。
+    const qint64 backstopMs =
+        static_cast<qint64>(m_heartbeatInterval) * 2 + kPingTimeoutMs;
+    if(now - m_lastActivityMs > backstopMs)
+    {
+        qDebug() << "长时间无服务端数据（>" << backstopMs
+                 << "ms），主动断开连接";
+        m_connectionManager->abortConnection();
+    }
 }

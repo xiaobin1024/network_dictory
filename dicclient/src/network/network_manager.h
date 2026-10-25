@@ -56,6 +56,7 @@ private slots:
     void onSocketReadyRead();    //接收消息接口
      void onReconnectAttempt(int currentAttempt,int maxAttempts);  //尝试重连
     void onHeartbeatTimeout();   //心跳定时器到期
+    void onLivenessCheck();      //存活看门狗：心跳往返超时则主动断开
 private:
 
 
@@ -65,6 +66,7 @@ private:
     //定时器相关
     QTimer *m_reconnectTimer;   //重连定时器
     QTimer *m_heartbeatTimer;   //心跳定时器
+    QTimer *m_livenessTimer;    //存活看门狗：定期检测心跳往返是否超时
 
     //配置参数
     int m_reconnectInterval;        //重连间隔
@@ -72,9 +74,16 @@ private:
     int m_maxReconnectAttempts;     //最大重连次数
     int m_currentReconnectAttempts; //当前重连次数尝试
 
+    //存活看门狗参数
+    static constexpr int kLivenessCheckMs = 1000;  //看门狗轮询间隔
+    static constexpr int kPingTimeoutMs   = 5000;  //发出心跳后多久没收到 ALIVE 即判定死亡
+
     //状态标志
     bool m_autoReconnect{true};     //是否启用自动重连
     bool m_isReconnecting{false};   //是否正在重连
+    bool m_pendingPing{false};      //是否已发出心跳但尚未收到服务端 ALIVE
+    qint64 m_pingSentMs{0};         //最近一次心跳发出的时间（ms）
+    qint64 m_lastActivityMs{0};     //最近一次收到服务端任意数据的时间（ms）
 private:
     // 子管理器
     ConnectionManager* m_connectionManager;

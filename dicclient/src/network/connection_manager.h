@@ -19,6 +19,8 @@ public:
     void disconnectFromServer() ;
     bool sendMessage(const CoreMessage::Msg &message);
     QVector<CoreMessage::Msg>readMessages();
+    // 立即强制断开底层 socket（不等 TCP 重传超时），用于存活看门狗判定连接已死后快速回收
+    void abortConnection();
 
     // 错误处理
     bool shouldReconnectOnError() const;

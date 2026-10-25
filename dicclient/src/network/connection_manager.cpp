@@ -150,6 +150,16 @@ void ConnectionManager::onSocketError(QAbstractSocket::SocketError error)
     qDebug() << "Socket error occurred:" << detailedError;
     emit networkError(detailedError);
 }
+void ConnectionManager::abortConnection()
+{
+    if(m_socket && m_socket->state() != QAbstractSocket::UnconnectedState)
+    {
+        // abort() 立即丢弃缓冲并关闭，会触发 disconnected() → connectionLost()，
+        // 从而走既有的「显示遮罩 + 启动重连」流程，不再等 TCP RTO（~20s）。
+        m_socket->abort();
+    }
+}
+
 bool ConnectionManager::sendMessage(const CoreMessage::Msg &message)
 {
     if(!isConnected())
