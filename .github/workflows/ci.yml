@@ -1,0 +1,121 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  # ------------------------------------------------------------------
+  # 服务端：编译 + 起本地实例 + 跑协议级集成测试（Python 脚本）
+  # ------------------------------------------------------------------
+  server:
+    name: dicserver 构建与协议测试
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装依赖
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake g++ libsqlite3-dev python3
+
+      - name: 配置与编译
+        run: |
+          cmake -S dicserver -B dicserver/build -DCMAKE_BUILD_TYPE=Release
+          cmake --build dicserver/build -j"$(nproc)"
+
+      - name: 启动本地服务实例（127.0.0.1:18080）
+        working-directory: dicserver
+        # 服务端从当前目录读取 dict.txt 并创建 database.db，必须在 dicserver/ 下启动；
+        # 先删掉旧库，保证每次 CI 都是全新库，注册类用例结果确定。
+        run: |
+          rm -f database.db
+          ./build/server 127.0.0.1 18080 &
+          echo $! > /tmp/dict_server.pid
+          for i in $(seq 1 50); do
+            if python3 -c "import socket; socket.create_connection(('127.0.0.1', 18080), timeout=1)" 2>/dev/null; then
+              echo "server up after ~$((i * 100))ms"
+              exit 0
+            fi
+            sleep 0.1
+          done
+          echo "server failed to start"
+          exit 1
+
+      - name: 协议测试（查词 / 生词本收藏 / 死连接踢除）
+        working-directory: dicserver
+        env:
+          DICT_HOST: 127.0.0.1
+          DICT_PORT: 18080
+        run: |
+          python3 test/test_dict.py
+          python3 test/test_vocabulary.py
+          python3 test/test_kick.py
+
+      - name: 停止服务实例
+        if: always()
+        run: kill "$(cat /tmp/dict_server.pid)" 2>/dev/null || true
+
+  # ------------------------------------------------------------------
+  # 客户端：Qt + vcpkg(gtest/gmock/xlnt) + Ninja 构建 + CTest
+  # 集成测试依赖真实服务器，CI 中把地址指向本机未监听端口，
+  # 使其确定性地走 GTEST_SKIP（由 AppConfig 的 DICT_SERVER_IP 覆盖）。
+  # ------------------------------------------------------------------
+  client:
+    name: dicclient 构建与单元测试
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 Qt 6.6.3
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: 6.6.3
+          host: windows
+          target: desktop
+          arch: win64_msvc2022_64
+          modules: 'qtnetwork qttest qttexttospeech qtprintsupport'
+
+      - name: 安装 Ninja
+        run: choco install ninja -y --no-progress
+
+      - name: 缓存 vcpkg 已安装依赖
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/vcpkg/installed
+          key: vcpkg-x64-windows-gtest-xlnt-v1
+          restore-keys: |
+            vcpkg-x64-windows-gtest-xlnt-
+
+      - name: 安装 vcpkg 依赖（gtest 端口同时提供 gmock）
+        shell: pwsh
+        run: |
+          git clone --depth 1 https://github.com/microsoft/vcpkg.git "$env:RUNNER_TEMP\vcpkg"
+          & "$env:RUNNER_TEMP\vcpkg\bootstrap-vcpkg.bat" -disableMetrics
+          & "$env:RUNNER_TEMP\vcpkg\vcpkg.exe" install gtest xlnt --triplet x64-windows
+          echo "VCPKG_ROOT=$env:RUNNER_TEMP\vcpkg" >> $env:GITHUB_ENV
+
+      - name: 配置（Ninja + BUILD_TESTING=ON）
+        shell: pwsh
+        run: |
+          cmake -S dicclient -B dicclient/build -G Ninja `
+            -DCMAKE_BUILD_TYPE=Debug `
+            -DBUILD_TESTING=ON `
+            -DCMAKE_PREFIX_PATH="$env:QT_ROOT_DIR" `
+            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT\scripts\buildsystems\vcpkg.cmake"
+
+      - name: 编译全部目标（含 18 个测试可执行文件）
+        shell: pwsh
+        run: cmake --build dicclient/build
+
+      - name: CTest
+        shell: pwsh
+        working-directory: dicclient/build
+        env:
+          # 指向本机未监听端口：连接必然失败，集成测试按设计 GTEST_SKIP，
+          # 纯单元测试正常运行。服务端可用性由本工作流的 server 作业验证。
+          DICT_SERVER_IP: 127.0.0.1
+          DICT_SERVER_PORT: 19999
+        run: ctest --output-on-failure -C Debug --timeout 180
