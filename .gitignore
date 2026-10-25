@@ -1,5 +1,6 @@
 # Build output
 build/
+build_ci/
 out/
 cmake-build-*/
 dicclient/build/
@@ -32,6 +33,8 @@ vcpkg_installed/
 *.exe
 *.out
 *.app
+*.pdb
+*.ilk
 
 # Runtime databases
 *.db
@@ -42,6 +45,10 @@ vcpkg_installed/
 
 # Logs
 *.log
+
+# Python
+__pycache__/
+*.pyc
 
 # IDE / editor
 .vs/
@@ -58,3 +65,7 @@ vcpkg_installed/
 # OS files
 .DS_Store
 Thumbs.db
+
+# 本地个人文档（简历材料等），仅本机保留，不入库
+/简历项目经历_*.md
+/项目优化与简历提升方案.md
