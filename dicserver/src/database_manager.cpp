@@ -1,4 +1,5 @@
 #include "database_manager.hpp"
+#include "password_hash.hpp"
 #include <iostream>
 #include <string>
 #include <cstring>
@@ -56,12 +57,14 @@ bool DatabaseManager::initializeUserDB()
     // 从连接池中获取一个数据库连接
     auto conn = getUsrConnection();
     // 准备sql语句，创建用户表和历史记录表的sql语句
+    // passwd 为旧版明文字段（保留仅用于平滑迁移兼容）；新用户密码只存 passwd_hash
     const char *createUserSql =
         "create table if not exists usr("
         "name text primary key,"
-        "passwd int,"
+        "passwd text,"
         "stage int,"
-        "role integer not null default 0);";
+        "role integer not null default 0,"
+        "passwd_hash text);";
     // 执行sql语句
     if (!executSQL(conn, createUserSql))
     {
@@ -92,6 +95,19 @@ bool DatabaseManager::initializeUserDB()
             return false;
         }
         cout << "usr table role column added (default 0 = normal user)" << endl;
+    }
+
+    // 平滑升级：新增 passwd_hash 列（SHA-256 + 随机盐的哈希值）。
+    // 旧用户的 passwd_hash 为空，登录时走明文兼容路径，校验通过后立即升级。
+    if (!tableHasColumn(conn, "usr", "passwd_hash"))
+    {
+        const char *addHashSql = "alter table usr add column passwd_hash text default '';";
+        if (!executSQL(conn, addHashSql))
+        {
+            cerr << "usr table add passwd_hash column failed" << endl;
+            return false;
+        }
+        cout << "usr table passwd_hash column added (legacy plaintext kept for migration)" << endl;
     }
 
     // 添加索引(如果已经存在不会重复创建)
@@ -338,8 +354,9 @@ bool DatabaseManager::registerUser(const string &name, const string &password,
     // 从连接池中获取一个数据库连接
     auto conn = getUsrConnection();
     // 准备sql语句，？表示通配符，用于后面的绑定，0表示默认注册表时，所有用户都是离线的
-    // 显式列出列名：后续为 usr 增加列时不会因为 values 个数不匹配而出错
-    const char *sql = "insert into usr(name,passwd,stage) values(?,?,0);";
+    // 显式列出列名：后续为 usr 增加列时不会因为 values 个数不匹配而出错。
+    // 新用户只存哈希（passwd 置空串），明文永不落库
+    const char *sql = "insert into usr(name,passwd,passwd_hash,stage) values(?,?,?,0);";
     // 编译sql语句
     sqlite3_stmt *tmt = NULL;
     if (sqlite3_prepare_v2(conn.get(), sql, -1, &tmt, NULL) != SQLITE_OK)
@@ -349,7 +366,12 @@ bool DatabaseManager::registerUser(const string &name, const string &password,
     }
     // 编译成功，可以给已经编译成功的内容绑定参数
     sqlite3_bind_text(tmt, 1, name.c_str(), -1, SQLITE_STATIC);
-    sqlite3_bind_text(tmt, 2, password.c_str(), -1, SQLITE_STATIC);
+    // passwd 明文列只对旧库迁移有意义，新用户留空，杜绝明文落库
+    static const std::string kEmpty;
+    sqlite3_bind_text(tmt, 2, kEmpty.c_str(), -1, SQLITE_STATIC);
+    // 哈希由 password_hash 模块生成：16 字节随机盐 + SHA-256(salt+password)
+    std::string passwdHash = pw::hashPassword(password);
+    sqlite3_bind_text(tmt, 3, passwdHash.c_str(), -1, SQLITE_STATIC);
     // 执行插入操作
     int result = sqlite3_step(tmt);
     sqlite3_finalize(tmt);
@@ -449,7 +471,8 @@ int DatabaseManager::loginUser(const string &name, const string &password, bool 
     }
 
     // 2. 检查密码是否正确，同时取出用户状态、稳定标识与角色
-    const char *checkPasswordSql = "SELECT passwd, stage, rowid, role FROM usr WHERE name=?;";
+    // passwd_hash 为主校验路径；passwd 明文列仅服务于旧库平滑迁移
+    const char *checkPasswordSql = "SELECT passwd, passwd_hash, stage, rowid, role FROM usr WHERE name=?;";
     if (sqlite3_prepare_v2(conn.get(), checkPasswordSql, -1, &stmt, NULL) != SQLITE_OK)
     {
         cerr << "密码检查SQL准备失败: " << sqlite3_errmsg(conn.get()) << endl;
@@ -471,18 +494,63 @@ int DatabaseManager::loginUser(const string &name, const string &password, bool 
         return -1;
     }
 
+    // 三态密码校验：
+    //  a) passwd_hash 非空且格式合法 → 哈希校验（新用户唯一路径）
+    //  b) hash 为空但 passwd 明文非空 → 旧库兼容路径，比对成功后立即升级为哈希
+    //  c) 两者皆空 → 拒绝（防止空密码绕过）
     const unsigned char *storedPassword = sqlite3_column_text(stmt, 0);
-    if (storedPassword == nullptr || strcmp(reinterpret_cast<const char *>(storedPassword), password.c_str()) != 0)
+    const unsigned char *storedHash = sqlite3_column_text(stmt, 1);
+    const std::string plainText = storedPassword ? reinterpret_cast<const char *>(storedPassword) : "";
+    const std::string hashText = storedHash ? reinterpret_cast<const char *>(storedHash) : "";
+
+    bool passwordOk = false;
+    bool needsHashUpgrade = false;
+    if (!hashText.empty() && pw::isHashedFormat(hashText))
+    {
+        passwordOk = pw::verifyPassword(password, hashText);
+    }
+    else if (!plainText.empty())
+    {
+        // 旧明文数据：恒定时间比较，成功后由调用方立即升级为哈希
+        passwordOk = pw::constantTimeEqual(plainText, password);
+        needsHashUpgrade = passwordOk;
+    }
+
+    if (!passwordOk)
     {
         sqlite3_finalize(stmt);
         return 2; // 密码错误
     }
 
     // 3. 检查在线状态，并记录用户标识与角色
-    is_online = sqlite3_column_int(stmt, 1) == 1;
-    long long userId = sqlite3_column_int64(stmt, 2);
-    int userRole = sqlite3_column_int(stmt, 3);
+    is_online = sqlite3_column_int(stmt, 2) == 1;
+    long long userId = sqlite3_column_int64(stmt, 3);
+    int userRole = sqlite3_column_int(stmt, 4);
     sqlite3_finalize(stmt);
+    stmt = nullptr;
+
+    // 4. 平滑迁移：旧明文用户首次登录成功后，立即写入哈希并清空明文列，
+    //    之后该用户只可能走哈希路径，明文在库中存留时间窗口最短
+    if (needsHashUpgrade)
+    {
+        const char *upgradeSql = "update usr set passwd_hash=?, passwd='' where name=?;";
+        if (sqlite3_prepare_v2(conn.get(), upgradeSql, -1, &stmt, NULL) == SQLITE_OK)
+        {
+            std::string newHash = pw::hashPassword(password);
+            sqlite3_bind_text(stmt, 1, newHash.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(stmt, 2, name.c_str(), -1, SQLITE_TRANSIENT);
+            if (sqlite3_step(stmt) != SQLITE_DONE)
+            {
+                cerr << "明文密码升级为哈希失败：" << sqlite3_errmsg(conn.get()) << endl;
+            }
+            else
+            {
+                cout << "legacy plaintext password upgraded to hash for user: " << name << endl;
+            }
+            sqlite3_finalize(stmt);
+            stmt = nullptr;
+        }
+    }
 
     // 4. 如果用户不在线，更新状态为在线
     if (!is_online)
@@ -493,6 +561,7 @@ int DatabaseManager::loginUser(const string &name, const string &password, bool 
             cerr << "更新状态SQL准备失败: " << sqlite3_errmsg(conn.get()) << endl;
             if (outUserId != nullptr) { *outUserId = userId; }
             if (outRole != nullptr) { *outRole = userRole; }
+            ConnectionPool::getInstance().releaseConnection(conn);
             return 0; // 登录成功但状态更新失败
         }
 
@@ -502,6 +571,7 @@ int DatabaseManager::loginUser(const string &name, const string &password, bool 
             sqlite3_finalize(stmt);
             if (outUserId != nullptr) { *outUserId = userId; }
             if (outRole != nullptr) { *outRole = userRole; }
+            ConnectionPool::getInstance().releaseConnection(conn);
             return 0; // 登录成功但状态更新失败
         }
 
@@ -1135,7 +1205,6 @@ const char *DatabaseManager::unregisterUser(const string &name, const string &pa
     const char *result = "error";
     // 注意：C++ 不允许 goto 跨越变量初始化，因此这里把后面需要用到的指针
     // 统一提前声明，保证 goto cleanup 可以安全跳转
-    const unsigned char *storedPassword = nullptr;
     const char *cleanupSqls[] = {
         "delete from history where name=?;",
         "delete from collect where name=?;",
@@ -1143,7 +1212,7 @@ const char *DatabaseManager::unregisterUser(const string &name, const string &pa
     const char *deleteSql = "delete from usr where name=?;";
 
     // 1. 查询用户是否存在并取出存储的密码，同时记录用户标识（删除前取出）
-    const char *check_sql = "select passwd, rowid from usr where name=?;";
+    const char *check_sql = "select passwd, passwd_hash, rowid from usr where name=?;";
     if (sqlite3_prepare_v2(conn.get(), check_sql, -1, &stmt, NULL) != SQLITE_OK)
     {
         cerr << "SQL准备失败：" << sqlite3_errmsg(conn.get()) << endl;
@@ -1156,16 +1225,32 @@ const char *DatabaseManager::unregisterUser(const string &name, const string &pa
         result = "user not found";
         goto cleanup;
     }
-    storedPassword = sqlite3_column_text(stmt, 0);
+    // 密码三态校验（与 loginUser 一致）：哈希优先，明文仅兼容旧库；
+    // 注销是终态操作，明文校验通过后也无需升级哈希
+    {
+        const unsigned char *storedPassword = sqlite3_column_text(stmt, 0);
+        const unsigned char *storedHash = sqlite3_column_text(stmt, 1);
+        const std::string plainText = storedPassword ? reinterpret_cast<const char *>(storedPassword) : "";
+        const std::string hashText = storedHash ? reinterpret_cast<const char *>(storedHash) : "";
+        bool passwordOk = false;
+        if (!hashText.empty() && pw::isHashedFormat(hashText))
+        {
+            passwordOk = pw::verifyPassword(password, hashText);
+        }
+        else if (!plainText.empty())
+        {
+            passwordOk = pw::constantTimeEqual(plainText, password);
+        }
+        if (!passwordOk)
+        {
+            // 密码错误，不允许注销
+            result = "password error";
+            goto cleanup;
+        }
+    }
     if (outUserId != nullptr)
     {
-        *outUserId = sqlite3_column_int64(stmt, 1);
-    }
-    if (storedPassword == nullptr || strcmp(reinterpret_cast<const char *>(storedPassword), password.c_str()) != 0)
-    {
-        // 密码错误，不允许注销
-        result = "password error";
-        goto cleanup;
+        *outUserId = sqlite3_column_int64(stmt, 2);
     }
     sqlite3_finalize(stmt);
     stmt = nullptr;

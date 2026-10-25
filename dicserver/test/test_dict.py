@@ -13,6 +13,7 @@ HOST = os.environ.get("DICT_HOST", "127.0.0.1")
 PORT = int(os.environ.get("DICT_PORT", "8080"))
 MSGSIZE = 1316
 R, L, Q, S, H, A, C, D = 1, 2, 3, 4, 5, 6, 7, 8
+U, V, VL = 9, 10, 11  # 注销 / 生词本增删 / 生词本列表
 PASS, FAIL = [], []
 
 def check(name, cond, detail=""):
@@ -129,6 +130,89 @@ t, n, txt = parse(rep)
 check("wrong-password login rejected", t == L and "密码错误" in txt,
       "type=%d text=%r" % (t, txt))
 s4.close()
+
+# ---------- 4b. 密码哈希存储与旧明文平滑迁移 ----------
+# 策略：新用户只存哈希（盐+ SHA-256），明文列留空；旧库明文用户首次登录
+# 成功后立即升级为哈希。以下直接操作数据库验证存储形态与迁移闭环。
+import sqlite3
+DB_PATH = os.environ.get("DICT_DB", "database.db")
+
+def db_query(sql, args=()):
+    for attempt in range(10):
+        try:
+            conn = sqlite3.connect(DB_PATH, timeout=10)
+            try:
+                return conn.execute(sql, args).fetchall()
+            finally:
+                conn.close()
+        except sqlite3.OperationalError:
+            time.sleep(0.5)
+    raise RuntimeError("db busy: " + sql)
+
+# 4b-1 新注册用户的存储形态：passwd_hash 为 "salt:hash" 且明文列为空
+rows = db_query("select passwd, passwd_hash from usr where name=?", (user,))
+check("registered user has hash row", len(rows) == 1, "rows=%d" % len(rows))
+if rows:
+    pw_col, hash_col = rows[0]
+    check("plaintext column empty for new user", (pw_col or "") == "", "passwd=%r" % pw_col)
+    hparts = (hash_col or "").split(":")
+    check("hash format is salt:sha256hex",
+          len(hparts) == 2 and len(hparts[0]) == 32 and len(hparts[1]) == 64
+          and all(c in "0123456789abcdef" for c in hash_col.replace(":", "")),
+          "hash=%r" % hash_col)
+    check("hash does not leak plaintext", "pass123" not in (hash_col or ""), "hash=%r" % hash_col)
+
+# 4b-2 相同密码的两个账号，哈希值必须不同（随机盐）
+rows = db_query("select passwd_hash from usr where name in (?,?)", (user, user2))
+if len(rows) == 2 and rows[0][0] and rows[1][0]:
+    check("same password -> different hashes (random salt)",
+          rows[0][0] != rows[1][0], "h1=%r h2=%r" % (rows[0][0][:20], rows[1][0][:20]))
+
+# 4b-3 旧明文用户（模拟升级前旧库）：明文登录成功 -> 自动升级 -> 哈希路径仍可登录
+legacy_user = "legacy_%d" % int(time.time())
+for attempt in range(10):
+    try:
+        conn = sqlite3.connect(DB_PATH, timeout=10)
+        try:
+            conn.execute("insert into usr(name,passwd,stage,role,passwd_hash) values(?,?,0,0,'')",
+                         (legacy_user, "legacy_pw"))
+            conn.commit()
+            break
+        finally:
+            conn.close()
+    except sqlite3.OperationalError:
+        time.sleep(0.5)
+
+s_legacy = socket.create_connection((HOST, PORT), timeout=5)
+s_legacy.sendall(make_msg(L, legacy_user, "legacy_pw"))
+rep = recv_exact(s_legacy, MSGSIZE)
+t, n, txt = parse(rep)
+check("legacy plaintext login succeeds (compat path)",
+      t == L and txt.startswith("SUCCESS:"), "text=%r" % txt)
+# 升级后：明文列必须被清空，哈希列必须生成
+rows = db_query("select passwd, passwd_hash from usr where name=?", (legacy_user,))
+if rows:
+    pw_col, hash_col = rows[0]
+    check("legacy plaintext cleared after upgrade", (pw_col or "") == "", "passwd=%r" % pw_col)
+    check("legacy hash generated after upgrade",
+          len((hash_col or "").split(":")) == 2 and len(hash_col or "") == 97, "hash=%r" % hash_col)
+# 退出后再次登录：必须走哈希主路径且成功
+s_legacy.sendall(make_msg(Q, legacy_user, ""))
+recv_exact(s_legacy, MSGSIZE)
+s_legacy.sendall(make_msg(L, legacy_user, "legacy_pw"))
+rep = recv_exact(s_legacy, MSGSIZE)
+t, n, txt = parse(rep)
+check("login via hash path after upgrade", t == L and txt.startswith("SUCCESS:"), "text=%r" % txt)
+# 注销：校验密码走哈希路径；注销后账号必须消失
+s_legacy.sendall(make_msg(U, legacy_user, "legacy_pw"))
+rep = recv_exact(s_legacy, MSGSIZE)
+t, n, txt = parse(rep)
+check("unregister with hash-verified password", t == U and txt.startswith("SUCCESS:"), "text=%r" % txt)
+s_legacy.sendall(make_msg(L, legacy_user, "legacy_pw"))
+rep = recv_exact(s_legacy, MSGSIZE)
+t, n, txt = parse(rep)
+check("unregistered user cannot login", t == L and "用户不存在" in txt, "text=%r" % txt)
+s_legacy.close()
 
 # ---------- 5. 查询单词（正常登录用户） ----------
 s5 = socket.create_connection((HOST, PORT), timeout=5)
