@@ -9,7 +9,20 @@ find_package(Threads REQUIRED)
 
 # 协议定义（v1 定长 / v2 变长帧）放在仓库根的 shared/，服务端与 Qt 客户端
 # 引用同一份头文件，避免两端各写一份导致字段长度/字节序漂移。
-set(SHARED_DIR "${CMAKE_SOURCE_DIR}/../shared")
+#
+# 两个候选路径：本地仓库里 shared/ 与 dicserver/ 同级（../shared）；
+# 部署到服务器时整个工程被解到一个目录里，shared/ 就在工程根下（./shared）。
+set(SHARED_DIR "")
+foreach(_candidate IN ITEMS "${CMAKE_SOURCE_DIR}/../shared" "${CMAKE_SOURCE_DIR}/shared")
+    if(EXISTS "${_candidate}/protocol_frame.hpp")
+        set(SHARED_DIR "${_candidate}")
+        break()
+    endif()
+endforeach()
+if(NOT SHARED_DIR)
+    message(FATAL_ERROR "找不到 shared/protocol_frame.hpp（已尝试 ../shared 与 ./shared）")
+endif()
+message(STATUS "Using shared protocol header: ${SHARED_DIR}")
 
 add_executable(server
     src/main.cpp
