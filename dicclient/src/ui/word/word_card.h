@@ -46,6 +46,7 @@ private:
     void updateContent();
     void updateCardSize();
     QString parseMeaningWithStyle(const QString& meaning) const;
+    QString wrapPhonetic(const QString& phonetic) const;
 
     WordData m_data;
     bool m_expanded = false;

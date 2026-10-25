@@ -26,6 +26,13 @@ InteractiveWordCard::InteractiveWordCard(const WordData& data,
     setupInteractiveUI();
     setupConnections();
 
+    // 词典补齐音标/例句/翻译后，例句是查词的主内容之一。
+    // 卡片默认折叠例句的话，用户查完还得双击一次才看得到，等于白查，
+    // 所以带例句的词条默认展开，没有例句的保持折叠（展开也只是多一片空白）。
+    if (!data.example.isEmpty() || !data.translation.isEmpty()) {
+        setExpanded(true);
+    }
+
     updateButtonIcons();   // 初始化图标
     updateButtonStates();  // 初始化状态
 

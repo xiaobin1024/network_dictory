@@ -626,7 +626,7 @@ void Server::responseQuery(int cfd, Msg &msg)
     LOG(LogLevel::INFO, msg.name << " :Entering Query ");
     // 执行查询操作
     LOG(LogLevel::INFO, "Query word : " << msg.text);
-    string meaning;
+    WordEntry entry;
     Msg response;
     memset(&response, 0, sizeof(response));
     response.type = S;
@@ -645,15 +645,19 @@ void Server::responseQuery(int cfd, Msg &msg)
                                << " rate=" << std::fixed << std::setprecision(2)
                                << cache.hitRate() * 100.0 << "%");
     }
-    if (db_manager_.querryWord(msg.name, msg.text, meaning, &collectFlag, &vocabFlag))
+    bool found = db_manager_.querryWord(msg.name, msg.text, entry, &collectFlag, &vocabFlag);
+    if (found)
     {
         // 响应格式与客户端 WordSearch::processSearchResponse 约定：
         // 单词|^|释义|^|音标|^|例句|^|翻译|^|收藏标志|^|生词本标志
-        // 当前词库只有单词与释义两列，音标/例句/翻译按空串返回。
+        // dict 表已随词典升级补齐音标/例句/例句翻译，这里按词条真实字段拼装，
+        // 不再像旧版那样把三列留空。
         // 拼接后用 safeStrcpy 受控拷贝，避免 snprintf 变参截断告警。
-        string payload = string(msg.text) + VOCAB_FIELD_SEP + meaning +
-                         VOCAB_FIELD_SEP + VOCAB_FIELD_SEP + VOCAB_FIELD_SEP + VOCAB_FIELD_SEP +
-                         std::to_string(collectFlag) + VOCAB_FIELD_SEP + std::to_string(vocabFlag);
+        string payload = string(msg.text) + VOCAB_FIELD_SEP + entry.mean +
+                         VOCAB_FIELD_SEP + entry.phonetic + VOCAB_FIELD_SEP +
+                         entry.example + VOCAB_FIELD_SEP + entry.translation +
+                         VOCAB_FIELD_SEP + std::to_string(collectFlag) + VOCAB_FIELD_SEP +
+                         std::to_string(vocabFlag);
         safeStrcpy(response.text, TEXT_BUF_SIZE, payload.c_str());
         LOG(LogLevel::INFO, "单词查询回包内容：" << response.text);
     }
@@ -670,10 +674,15 @@ void Server::responseQuery(int cfd, Msg &msg)
         LOG(LogLevel::ERROR, "单词查询的结果发送失败" << strerror(errno));
         return;
     }
-    // 保存查找单词的记录
-    string time_str = getCurrentTime();
-    // 调用历史查询记录
-    db_manager_.recordHistory(msg.name, msg.text, meaning, time_str);
+    // 保存查找单词的记录：只记查得到的词。
+    // 查不到的词记进去只会得到一条空释义的历史，既污染列表也没意义。
+    // 历史表沿用"单词 + 释义"两列，不重复存例句：历史列表展示的是查过什么词，
+    // 需要完整词条时客户端会重新发起查词。
+    if (found)
+    {
+        const string time_str = getCurrentTime();
+        db_manager_.recordHistory(msg.name, msg.text, entry.mean, time_str);
+    }
 }
 // 响应客户端历史记录请求函数
 void Server::responseHistory(int cfd, Msg &msg)

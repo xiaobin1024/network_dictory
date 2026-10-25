@@ -11,6 +11,8 @@
 #include <cstddef>
 // 连接池头文件
 #include "connectionPool.hpp"
+// 词条结构（释义/音标/例句/翻译）
+#include "word_entry.hpp"
 
 class DatabaseManager
 {
@@ -55,10 +57,11 @@ public:
     /*
     查询单词，记录历史记录，查询历史记录,收藏单词，取消收藏单词，收藏单词记录
 
-    查询：meaning 输出释义；collectFlag/vocabFlag 输出该单词对当前用户的
-    收藏/生词本状态（1=已收藏/已在生词本，0=否），传 nullptr 表示不关心。
+    查询：entry 输出完整词条（释义/音标/例句/翻译，dict 表四列）；
+    collectFlag/vocabFlag 输出该单词对当前用户的收藏/生词本状态
+    （1=已收藏/已在生词本，0=否），传 nullptr 表示不关心。
     */
-    bool querryWord(const std::string name,const std::string &word, std::string &meaning,
+    bool querryWord(const std::string &name, const std::string &word, WordEntry &entry,
                     int *collectFlag = nullptr, int *vocabFlag = nullptr);
     bool recordHistory(const std::string &name, const std::string &word, const std::string &meaning, const std::string &time);
     bool getHistory(const std::string &name, std::vector<std::string> &historyRecords);

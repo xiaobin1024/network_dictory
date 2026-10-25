@@ -120,6 +120,14 @@ s.sendall(frame(S, user, "hello"))
 rep = recv_frame(s)
 check("v2 查词返回释义", rep is not None and rep[0] == S and rep[2] != "NOT_FOUND",
       "text=%r" % (rep[2][:40] if rep else None))
+# 词典升级后，v2 这条链路也必须带回音标/例句/翻译：
+# 变长帧的价值之一就是 text 不再被 1280 字节焊死，长例句也能完整送达
+qparts = (rep[2].split("|^|") if rep else [])
+check("v2 查词返回 7 字段", len(qparts) == 7, "fields=%d text=%r" % (len(qparts), rep[2][:40] if rep else None))
+check("v2 查词音标非空", len(qparts) == 7 and qparts[2] != "",
+      "phonetic=%r" % (qparts[2] if len(qparts) > 2 else None))
+check("v2 查词例句非空", len(qparts) == 7 and qparts[3] != "",
+      "example=%r" % (qparts[3][:40] if len(qparts) > 3 else None))
 s.close()
 
 # ---------- 3. 半包：一帧拆成三段发，中间各停 0.3s ----------

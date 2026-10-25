@@ -46,3 +46,8 @@ add_test(NAME word_cache_test COMMAND word_cache_test)
 add_executable(protocol_frame_test test/test_protocol_frame.cpp)
 target_include_directories(protocol_frame_test PRIVATE ${CMAKE_SOURCE_DIR}/src ${SHARED_DIR})
 add_test(NAME protocol_frame_test COMMAND protocol_frame_test)
+
+# 词典行解析：5 列新格式 / 旧 2 列兼容 / 脏行跳过，纯字符串逻辑，可独立验证
+add_executable(dict_entry_test test/test_dict_entry.cpp)
+target_include_directories(dict_entry_test PRIVATE ${CMAKE_SOURCE_DIR}/src ${SHARED_DIR})
+add_test(NAME dict_entry_test COMMAND dict_entry_test)

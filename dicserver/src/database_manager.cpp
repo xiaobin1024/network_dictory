@@ -14,6 +14,7 @@
 // 异常处理的头文件
 #include <stdexcept>
 #include <sstream>
+#include <cstdlib>
 
 using namespace std;
 
@@ -186,20 +187,53 @@ bool DatabaseManager::initializeDicDB()
     // 创建互斥锁，保护单词表
     lock_guard<mutex> lock(init_mutex_);
     // 准备创建单词数据库的sql语句
-    const char *createDictSql = "create table if not exists dict(word text,mean text);";
+    // dict 表从 2 列（word/mean）扩到 5 列：补上客户端单词卡片需要的
+    // 音标/例句/例句翻译，与 collect、vocabulary 两表的列保持一致。
+    const char *createDictSql =
+        "create table if not exists dict("
+        "word text,mean text,phonetic text,example text,translation text);";
     // 从连接池中获取一个数据库连接
     auto conn = getDictConnection();
     if (!executSQL(conn, createDictSql))
     {
         cerr << "单词表创建失败" << endl;
+        ConnectionPool::getInstance().releaseConnection(conn);
         return false;
     }
+
+    // 平滑升级：旧库只有 (word, mean) 两列。这里不能只 ALTER TABLE 加列——
+    // 加列只能得到三个空列，音标/例句/翻译的内容补不出来，必须按新词典重建。
+    // dict 是"由 dict.txt 派生"的数据，丢掉重建无副作用，也不会碰任何用户数据。
+    bool need_import = false;
+    if (!tableHasColumn(conn, "dict", "phonetic"))
+    {
+        cout << "dict 表缺少音标/例句/翻译列，按新词典重建（用户数据不受影响）" << endl;
+        if (!executSQL(conn, "drop table dict;") ||
+            !executSQL(conn, createDictSql))
+        {
+            cerr << "dict 表重建失败" << endl;
+            ConnectionPool::getInstance().releaseConnection(conn);
+            return false;
+        }
+        need_import = true;
+    }
+
+    // 运维开关：词典文件换了但表结构没变时，用 DICT_FORCE_IMPORT=1 触发重导，
+    // 否则"表非空"会被判成已导入，新词典永远进不了库。
+    const char *forceImport = getenv("DICT_FORCE_IMPORT");
+    if (forceImport != nullptr && string(forceImport) == "1")
+    {
+        cout << "DICT_FORCE_IMPORT=1，强制重新导入词典" << endl;
+        need_import = true;
+    }
+
     // 添加单词表索引
     const char *createDictIndexSql =
         "create index if not exists idx_dict_word  on dict(word);";
     if (!executSQL(conn, createDictIndexSql))
     {
         cerr << "单词表索引创建失败" << endl;
+        ConnectionPool::getInstance().releaseConnection(conn);
         return false;
     }
     // 检查词典数据库是否为空
@@ -217,8 +251,7 @@ bool DatabaseManager::initializeDicDB()
         cerr << "sql准备失败" << sqlite3_errmsg(conn.get()) << endl;
         return false;
     }
-    // 标识是否需要导入数据
-    bool need_import = false;
+    // 标识是否需要导入数据（已在上方"旧表重建/DICT_FORCE_IMPORT"分支声明）
     // 用step执行sql语句,如果返回SQLITE_ROW表示成功执行
     // 如果sqlite3_column_int为0，表示数据为空，标识为需要导入数据
     if (sqlite3_step(stmt) == SQLITE_ROW)
@@ -232,6 +265,12 @@ bool DatabaseManager::initializeDicDB()
     sqlite3_finalize(stmt);
     // 释放连接
     ConnectionPool::getInstance().releaseConnection(conn);
+    // 词典内容即将变化：热点词缓存里存的是旧词条，必须先失效，
+    // 否则导入后查到的还是没有音标/例句的旧数据。
+    if (need_import)
+    {
+        WordCache::getInstance().clear();
+    }
     // 如果需要导入，返回导入函数的结果，如果已经有了数据表的内容，则直接返回
     return need_import ? dicToDatabase() : true;
 }
@@ -247,58 +286,94 @@ bool DatabaseManager::dicToDatabase()
     }
     // 从连接池中获取一个数据库连接
     auto conn = getDictConnection();
+
+    // 先清空再导入，让"首次导入 / 表结构重建 / DICT_FORCE_IMPORT 重导"
+    // 三条路径的结果一致：表里永远只有当前 dict.txt 的内容，不留旧数据。
+    if (!executSQL(conn, "delete from dict;"))
+    {
+        cerr << "清空单词表失败" << endl;
+        ConnectionPool::getInstance().releaseConnection(conn);
+        return false;
+    }
+
+    // 7987 条逐条提交要写 7987 次事务日志；包成一个事务只需一次 fsync，
+    // 导入从"每条一次落盘"降为"整批一次落盘"。
+    if (!executSQL(conn, "begin transaction;"))
+    {
+        cerr << "开启导入事务失败" << endl;
+        ConnectionPool::getInstance().releaseConnection(conn);
+        return false;
+    }
+
+    // 预编译一次，循环里只 bind/step/reset，
+    // 避免每行都重复解析同一条 SQL。
+    const char *sql =
+        "insert into dict(word,mean,phonetic,example,translation) values(?,?,?,?,?);";
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(conn.get(), sql, -1, &stmt, NULL) != SQLITE_OK)
+    {
+        cerr << "sql准备失败" << sqlite3_errmsg(conn.get()) << endl;
+        ConnectionPool::getInstance().releaseConnection(conn);
+        return false;
+    }
+
     // 定义用于读取文件中一行数据的变量
     string line;
+    size_t imported = 0;
+    size_t skipped = 0;
+    bool ok = true;
     // 循环从文件中读取一行信息放入到line中
     while (getline(file, line))
     {
-        // 跳过空格
-        if (line.empty())
-            continue;
-        // 分割单词和意思（格式：单词 意思）
-        // 定位到空格所在位置
-        size_t pos = line.find(' ');
-        // 如果没有该位置，就表示改行没有空格
-        if (pos == string::npos)
+        // 解析一行：5 列格式（单词 释义 音标 例句 翻译，3 个空格分隔），
+        // 解析失败（空行/缺单词）只跳过该行，不中断整批导入。
+        WordEntry entry;
+        if (!DictLine::parse(line, entry))
         {
-            cerr << "无效的词典条目（缺少空格分隔）" << line << endl;
+            ++skipped;
             continue;
         }
-        // 将单词和意思分别存储
-        // 将当前行中的单词，意思截取出来
-        string word = line.substr(0, pos);
-        string mean = line.substr(pos + 1);
-        // 准备sql语句，可以使用通配符表示
-        const char *sql = "insert into dict values(?,?);";
-        // 预编译sql语句
-        sqlite3_stmt *stmt = NULL;
-        if (sqlite3_prepare_v2(conn.get(), sql, -1, &stmt, NULL) != SQLITE_OK)
-        {
-            cerr << "sql准备失败" << sqlite3_errmsg(conn.get()) << endl;
-            file.close();
-            return false;
-        }
-        // 预编译成功，可以给已经预编译成功的内容绑定参数
-        sqlite3_bind_text(stmt, 1, word.c_str(), -1, SQLITE_STATIC);
-        sqlite3_bind_text(stmt, 2, mean.c_str(), -1, SQLITE_STATIC);
+        // 绑定参数（源文件里的 string 是循环变量，必须用 TRANSIENT 拷贝）
+        sqlite3_bind_text(stmt, 1, entry.word.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 2, entry.mean.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 3, entry.phonetic.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 4, entry.example.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 5, entry.translation.c_str(), -1, SQLITE_TRANSIENT);
         // 执行插入语句
         if (sqlite3_step(stmt) != SQLITE_DONE)
         {
             cerr << "数据插入失败" << sqlite3_errmsg(conn.get()) << endl;
-            sqlite3_finalize(stmt);
-            file.close();
-            return false;
+            ok = false;
+            break;
         }
-        // 程序执行至此，表示单词已经导入到数据库了,释放预编译sql语句的空间
-
-        sqlite3_finalize(stmt);
-        // 释放连接
-        ConnectionPool::getInstance().releaseConnection(conn);
+        // 复位语句，复用同一份预编译结果继续下一行
+        sqlite3_reset(stmt);
+        ++imported;
     }
-    // 关闭文件
+    // 释放预编译sql语句的空间
+    sqlite3_finalize(stmt);
     file.close();
-    cout << "单词库导入成功" << endl;
-    return true;
+
+    // 出错回滚，保证表里不会留下"导入了一半"的词典
+    if (ok)
+    {
+        ok = executSQL(conn, "commit;");
+    }
+    else
+    {
+        executSQL(conn, "rollback;");
+    }
+
+    // 连接只归还一次：旧实现在循环里反复归还同一个连接，
+    // 会让连接池里出现重复句柄，后续线程可能拿到同一个连接。
+    ConnectionPool::getInstance().releaseConnection(conn);
+
+    if (!ok)
+    {
+        return false;
+    }
+    cout << "单词库导入成功：导入 " << imported << " 条，跳过 " << skipped << " 条" << endl;
+    return imported > 0;
 }
 // 执行sql语句的函数
 /*
@@ -650,9 +725,10 @@ cleanup:
     return result;
 }
 // 查询单词
-// meaning 输出释义；collectFlag/vocabFlag 输出该单词对当前用户的收藏/生词本状态。
+// entry 输出完整词条（释义/音标/例句/翻译）；collectFlag/vocabFlag 输出
+// 该单词对当前用户的收藏/生词本状态。
 // 标志查询失败不影响"单词已找到"的结论（默认按未收藏处理），保证查询主链路可用。
-bool DatabaseManager::querryWord(const string name, const string &word, string &meaning,
+bool DatabaseManager::querryWord(const string &name, const string &word, WordEntry &entry,
                                  int *collectFlag, int *vocabFlag)
 {
     bool found = false;
@@ -663,16 +739,18 @@ bool DatabaseManager::querryWord(const string name, const string &word, string &
     //    命中即跳过一次 SQLite prepare/step 与 dict_mutex_ 争用。
     //    只缓存"查得到"的结果：查不到的词不写入，避免热词被低频生僻词挤占。
     WordCache &cache = WordCache::getInstance();
-    if (cache.get(word, meaning))
+    if (cache.get(word, entry))
     {
         found = true;
     }
     else
     {
-        // 2) 未命中：查 dict 表，查到后回填缓存
+        // 2) 未命中：查 dict 表，查到后回填缓存。
+        //    一次把 4 个字段都取出来：查词回包要用的就是这 4 列，
+        //    分两次查不仅多一次 prepare/step，还可能读到不一致的行。
         // dict 表为最高频只读路径，独占表级锁，不被任何用户写操作阻塞
         lock_guard<mutex> lock(dict_mutex_);
-        const char *sql = "select mean from dict where word=?;";
+        const char *sql = "select mean,phonetic,example,translation from dict where word=?;";
         sqlite3_stmt *tmt = NULL;
 
         if (sqlite3_prepare_v2(conn.get(), sql, -1, &tmt, NULL) != SQLITE_OK)
@@ -686,10 +764,20 @@ bool DatabaseManager::querryWord(const string name, const string &word, string &
 
         if (sqlite3_step(tmt) == SQLITE_ROW)
         {
-            const unsigned char *result = sqlite3_column_text(tmt, 0);
-            if (result)
+            // 旧库升级后 phonetic/example/translation 可能为 NULL，用空串兜底，
+            // 保证回包字段数稳定，客户端不用处理 NULL。
+            const unsigned char *mean = sqlite3_column_text(tmt, 0);
+            const unsigned char *phonetic = sqlite3_column_text(tmt, 1);
+            const unsigned char *example = sqlite3_column_text(tmt, 2);
+            const unsigned char *translation = sqlite3_column_text(tmt, 3);
+            if (mean)
             {
-                meaning = reinterpret_cast<const char *>(result);
+                entry.word = word;
+                entry.mean = reinterpret_cast<const char *>(mean);
+                entry.phonetic = phonetic ? reinterpret_cast<const char *>(phonetic) : "";
+                entry.example = example ? reinterpret_cast<const char *>(example) : "";
+                entry.translation =
+                    translation ? reinterpret_cast<const char *>(translation) : "";
                 found = true;
             }
         }
@@ -697,8 +785,15 @@ bool DatabaseManager::querryWord(const string name, const string &word, string &
 
         if (found)
         {
-            cache.put(word, meaning);
+            cache.put(word, entry);
         }
+    }
+
+    if (found)
+    {
+        // 命中缓存时 entry.word 由缓存带回；这里统一对齐一次，
+        // 避免调用方拿到的词条缺单词字段。
+        entry.word = word;
     }
 
     if (collectFlag != nullptr)

@@ -201,8 +201,11 @@ void WordCard::updateContent()
     m_wordLabel->setToolTip(m_data.word);
 
     // 更新音标
+    // 词典里的音标本身已经带斜杠（/ə'bændənmənt/），早期版本音标是空串，
+    // 展示时才自己补一对斜杠。无条件拼接会出现 //ə'...// 这种双层斜杠，
+    // 所以只在音标里本来没有斜杠时才补。
     if (!m_data.phonetic.isEmpty()) {
-        m_phoneticLabel->setText("/" + m_data.phonetic + "/");
+        m_phoneticLabel->setText(wrapPhonetic(m_data.phonetic));
         m_phoneticLabel->show();
     } else {
         m_phoneticLabel->hide();
@@ -234,6 +237,18 @@ void WordCard::updateContent()
     adjustSize();
     updateGeometry();
     updateCardSize();
+}
+
+/* 音标展示：已有斜杠就不重复包，避免 //ə'bændənmənt// */
+QString WordCard::wrapPhonetic(const QString& phonetic) const
+{
+    if (phonetic.isEmpty()) {
+        return QString();
+    }
+    if (phonetic.contains('/')) {
+        return phonetic;
+    }
+    return "/" + phonetic + "/";
 }
 
 QString WordCard::parseMeaningWithStyle(const QString& meaning) const

@@ -7,7 +7,10 @@
 设计要点：
 1. LRU 淘汰：unordered_map + 双向链表，O(1) 命中与淘汰；
    容量可配置（默认 4096 条，按词条平均几十字节估算约几百 KB 内存）。
-2. 只缓存 dict 表释义（纯读、无用户维度），缓存键即单词本身。
+2. 只缓存 dict 表词条（纯读、无用户维度），缓存键即单词本身。
+   缓存值是完整的 WordEntry（释义/音标/例句/翻译），不是只有释义：
+   一次查词需要 4 个字段，缓存只给释义的话剩下 3 列还是得回表，
+   缓存就白做了。
 3. 写路径无需失效：dict 表运行时只读（启动导入后不再变更），
    收藏/生词本标志由调用方按用户单独查询，不进入本缓存。
 4. 线程安全：内部互斥锁，服务端多工作线程并发查词时安全。
@@ -16,12 +19,14 @@
 
 用法：
     WordCache &cache = WordCache::getInstance();
-    std::string meaning;
-    if (!cache.get(word, meaning)) {
+    WordEntry entry;
+    if (!cache.get(word, entry)) {
         // 未命中：查 DB 后回填
-        cache.put(word, meaning);
+        cache.put(word, entry);
     }
 */
+
+#include "word_entry.hpp"
 
 #include <string>
 #include <list>
@@ -38,8 +43,8 @@ public:
         return instance;
     }
 
-    // 查询缓存；命中返回 true 并通过 out 返回释义
-    bool get(const std::string &word, std::string &out)
+    // 查询缓存；命中返回 true 并通过 out 返回完整词条
+    bool get(const std::string &word, WordEntry &out)
     {
         std::lock_guard<std::mutex> lock(mutex_);
         if (!enabled_)
@@ -61,7 +66,7 @@ public:
     }
 
     // 写入/更新缓存
-    void put(const std::string &word, const std::string &meaning)
+    void put(const std::string &word, const WordEntry &entry)
     {
         std::lock_guard<std::mutex> lock(mutex_);
         if (!enabled_)
@@ -70,7 +75,7 @@ public:
         if (it != index_.end())
         {
             // 已存在：更新值并提到链表头
-            it->second->second = meaning;
+            it->second->second = entry;
             items_.splice(items_.begin(), items_, it->second);
             return;
         }
@@ -82,7 +87,7 @@ public:
             items_.pop_back();
             ++evict_count_;
         }
-        items_.emplace_front(word, meaning);
+        items_.emplace_front(word, entry);
         index_[word] = items_.begin();
     }
 
@@ -166,7 +171,7 @@ private:
     WordCache &operator=(const WordCache &) = delete;
 
     // 双向链表：front = 最近使用，back = 最久未用（淘汰候选）
-    using ItemList = std::list<std::pair<std::string, std::string>>;
+    using ItemList = std::list<std::pair<std::string, WordEntry>>;
 
     static constexpr size_t kDefaultCapacity = 4096;
 

@@ -240,6 +240,18 @@ check("query payload flags numeric",
       len(qparts) == 7 and qparts[5] in ("0", "1") and qparts[6] in ("0", "1"),
       "collect=%r vocab=%r" % (qparts[5] if len(qparts) > 5 else None,
                                qparts[6] if len(qparts) > 6 else None))
+# 词典升级后查词必须带回真实音标/例句/翻译，不能再是三个空串：
+# 协议定了 7 字段但服务端填不出来的话，客户端单词卡片永远只有单词+释义
+if len(qparts) == 7 and qparts[0] == word:
+    check("query payload phonetic non-empty", qparts[2] != "",
+          "phonetic=%r" % qparts[2])
+    check("query payload example non-empty", qparts[3] != "",
+          "example=%r" % qparts[3][:40])
+    check("query payload translation non-empty", qparts[4] != "",
+          "translation=%r" % qparts[4][:40])
+    check("query meaning is not the whole line",
+          "   " not in qparts[1],
+          "meaning=%r" % qparts[1][:40])
 # 未收录的单词必须返回精确的 NOT_FOUND
 s5.sendall(make_msg(S, user, "zzz_not_a_word_zzz"))
 rep = recv_exact(s5, MSGSIZE)
