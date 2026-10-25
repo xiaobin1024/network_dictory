@@ -5,6 +5,7 @@
 #include <memory>
 #include <string>
 #include <ctime>
+#include <mutex>
 #include <unordered_map>
 #include <netinet/in.h> // sockaddr_in
 #include "message.hpp"
@@ -71,6 +72,21 @@ private:
     static void safeStrcpy(char *dst, size_t dst_size, const char *src);
     // 安全拷贝（std::string 版本）
     static void safeStrcpy(std::string &dst, const std::string &src, size_t max_len);
+
+    // ---- 协议版本与统一发送 ----
+    // 每条连接按首帧判定协议版本（v1 定长 / v2 变长帧），后续收发都按该版本，
+    // 同一个端口可以同时服务新旧客户端。
+    void setProtocolVersion(int cfd, int version);
+    // 取连接协议版本，未知时按 v1 兜底（旧客户端行为不变）
+    int protocolVersion(int cfd) const;
+    void eraseProtocolVersion(int cfd);
+    // 统一发送出口：按连接版本序列化，循环 send 直到发完（处理 EAGAIN 重试）
+    bool sendMsg(int cfd, const Msg &msg, int flags);
+
+    // cfd -> ProtocolFrame::Version。连接数有限（每连接一个工作线程），
+    // 读写都很少，用一把互斥锁保护足够，不必引入无锁结构。
+    mutable std::mutex version_mutex_;
+    std::unordered_map<int, int> conn_version_;
 };
 
 #endif

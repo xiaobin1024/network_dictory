@@ -1,5 +1,6 @@
 #include "server.hpp"
 #include "word_cache.hpp"
+#include "protocol_frame.hpp"
 
 #include <iostream>
 #include <string>
@@ -113,6 +114,79 @@ Server::~Server()
 {
     stop();
 }
+
+// ---- 协议版本管理 ----
+// 版本在第一帧就确定，之后整条连接固定，因此这里只做增删查，不做切换。
+void Server::setProtocolVersion(int cfd, int version)
+{
+    std::lock_guard<std::mutex> lock(version_mutex_);
+    conn_version_[cfd] = version;
+}
+
+int Server::protocolVersion(int cfd) const
+{
+    std::lock_guard<std::mutex> lock(version_mutex_);
+    auto it = conn_version_.find(cfd);
+    // 未知（比如还没收过完整首帧就要回包）时按 v1 兜底，保证旧客户端行为不变
+    return it == conn_version_.end() ? ProtocolFrame::kV1Fixed : it->second;
+}
+
+void Server::eraseProtocolVersion(int cfd)
+{
+    std::lock_guard<std::mutex> lock(version_mutex_);
+    conn_version_.erase(cfd);
+}
+
+// 统一发送出口。
+// 约定：传入的 Msg 是主机字节序，序列化（含字节序转换）全部在这里做，
+// 调用方不再各自 networkByteOrder()——那正是之前 v1/v2 混用会转两次的隐患。
+//
+// 此前每个响应函数各自 send 一次 sizeof(Msg)，历史/收藏列表还要手写
+// EAGAIN 重试循环。这里一并收口：先序列化成字节串，再循环 send 到发完，
+// 调用方只关心"发出去了没有"，不再重复处理短写。
+bool Server::sendMsg(int cfd, const Msg &msg, int flags)
+{
+    std::string buf;
+    if (protocolVersion(cfd) == ProtocolFrame::kV2Frame)
+    {
+        // v2：变长帧，name/text 按实际长度走，不再补 1280 字节的零
+        buf = ProtocolFrame::encode(msg.type, std::string(msg.name), std::string(msg.text));
+    }
+    else
+    {
+        // v1：定长 1316 字节，type 需转网络字节序
+        Msg net = msg;
+        net.networkByteOrder();
+        buf.assign(reinterpret_cast<const char *>(&net), sizeof(Msg));
+    }
+
+    size_t sent = 0;
+    int retry = 0;
+    while (sent < buf.size())
+    {
+        ssize_t n = send(cfd, buf.data() + sent, buf.size() - sent, flags);
+        if (n < 0)
+        {
+            if (errno == EAGAIN || errno == EWOULDBLOCK)
+            {
+                // 发送缓冲区满：退避重试。给足次数，避免慢客户端被直接判失败
+                if (++retry > 1000)
+                {
+                    LOG(LogLevel::ERROR, "发送重试次数超限，放弃: " << strerror(errno));
+                    return false;
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                continue;
+            }
+            if (errno == EINTR)
+                continue;
+            LOG(LogLevel::ERROR, "发送失败: " << strerror(errno));
+            return false;
+        }
+        sent += static_cast<size_t>(n);
+    }
+    return true;
+}
 // 启动服务器
 bool Server::start()
 {
@@ -225,14 +299,18 @@ void Server::handleClient(int cfd, sockaddr_in client_addr)
 
     LOG(LogLevel::INFO, "开始处理客户端 " << client_ip << ":" << client_port << " 的连接");
 
-    // TCP 是字节流，recv 一次可能返回任意长度，必须先缓冲再按定长 Msg 切包
+    // TCP 是字节流，recv 一次可能返回任意长度，必须先缓冲再按协议切包。
+    // v1 按定长 sizeof(Msg) 切，v2 按帧头长度字段切——同一套缓冲支持两种版本。
     std::vector<char> readBuf;
     readBuf.reserve(sizeof(Msg) * 2);
     char chunk[RECV_CHUNK_SIZE];
     // 最近一次收到报文的时间，用于心跳超时判定
     auto lastActive = std::chrono::steady_clock::now();
+    // 本连接的协议版本：首帧判定后固定，未知前为 kUnknown
+    int version = ProtocolFrame::kUnknown;
+    bool badFrame = false;
 
-    while (runnning_)
+    while (runnning_ && !badFrame)
     {
         ssize_t recv_len = recv(cfd, chunk, sizeof(chunk), 0);
 
@@ -271,16 +349,61 @@ void Server::handleClient(int cfd, sockaddr_in client_addr)
         lastActive = std::chrono::steady_clock::now();
         readBuf.insert(readBuf.end(), chunk, chunk + recv_len);
 
-        // 按定长结构体切出完整消息，不足一个 Msg 的字节留在缓冲中等待下次 recv
-        while (readBuf.size() >= sizeof(Msg))
+        // 按协议切出完整消息，不足一帧的字节留在缓冲中等待下次 recv
+        for (;;)
         {
+            // 版本未定：用前 4 字节判定。v2 是固定 magic，v1 是 type(1~11)，不会混淆。
+            if (version == ProtocolFrame::kUnknown)
+            {
+                int v = ProtocolFrame::detectVersion(readBuf.data(), readBuf.size());
+                if (v == ProtocolFrame::kUnknown)
+                {
+                    break; // 连 4 字节都不到，继续 recv
+                }
+                version = v;
+                setProtocolVersion(cfd, v);
+                LOG(LogLevel::INFO, "连接协议版本: " << (v == ProtocolFrame::kV2Frame ? "v2 变长帧" : "v1 定长"));
+            }
+
             Msg msg;
             memset(&msg, 0, sizeof(msg));
-            memcpy(&msg, readBuf.data(), sizeof(Msg));
-            readBuf.erase(readBuf.begin(), readBuf.begin() + sizeof(Msg));
+            size_t frameLen = 0;
 
-            // 只有收到完整消息时才继续处理
-            msg.hostByteOrder();
+            if (version == ProtocolFrame::kV2Frame)
+            {
+                ProtocolFrame::Frame frame;
+                ProtocolFrame::ParseResult r =
+                    ProtocolFrame::parse(readBuf.data(), readBuf.size(), frame, frameLen);
+                if (r == ProtocolFrame::ParseResult::NeedMore)
+                {
+                    break; // 半包，继续 recv
+                }
+                if (r == ProtocolFrame::ParseResult::Invalid)
+                {
+                    // 帧头非法（magic 错 / 长度越界 / bodyLen 与字段长度不符）。
+                    // 此时缓冲里的字节边界已经不可信，只能断开，不能跳过继续解析。
+                    LOG(LogLevel::ERROR, "v2 帧头非法，关闭连接: " << client_ip << ":" << client_port);
+                    badFrame = true;
+                    break;
+                }
+                msg.type = frame.type;
+                // 落到定长 Msg 供既有处理链路复用；v2 的 name/text 可能比 v1 长，
+                // 超出部分按 v1 字段宽度截断（用户名/单词实际远小于此）。
+                safeStrcpy(msg.name, NAME_BUF_SIZE, frame.name.c_str());
+                safeStrcpy(msg.text, TEXT_BUF_SIZE, frame.text.c_str());
+            }
+            else
+            {
+                if (readBuf.size() < sizeof(Msg))
+                {
+                    break;
+                }
+                memcpy(&msg, readBuf.data(), sizeof(Msg));
+                msg.hostByteOrder();
+                frameLen = sizeof(Msg);
+            }
+
+            readBuf.erase(readBuf.begin(), readBuf.begin() + frameLen);
 
             // 验证消息类型有效性（1~11，与客户端 protocol/message.h 的枚举保持一致）
             if (msg.type < 1 || msg.type > MAX_MSG_TYPE)
@@ -298,6 +421,9 @@ void Server::handleClient(int cfd, sockaddr_in client_addr)
             processMessage(cfd, msg, client_addr);
         }
     }
+
+    // 版本表按连接存活，连接结束必须清理，否则 fd 复用后会读到旧版本
+    eraseProtocolVersion(cfd);
 
     // 连接关闭兜底：已登录用户置为离线，避免残留在线状态
     if (!username.empty())
@@ -386,9 +512,8 @@ void Server::responseHeartbeat(int cfd, Msg &msg, sockaddr_in client_addr)
     memset(&heartbeatResp, 0, sizeof(heartbeatResp));
     heartbeatResp.type = A;
     safeStrcpy(heartbeatResp.text, TEXT_BUF_SIZE, "ALIVE");
-    heartbeatResp.networkByteOrder();
 
-    if (send(cfd, &heartbeatResp, sizeof(heartbeatResp), 0) < 0)
+    if (!sendMsg(cfd, heartbeatResp, 0))
     {
         // 发送失败，可能是连接已关闭
         LOG(LogLevel::DEBUG, "发送心跳响应失败，连接可能已关闭: " << client_ip);
@@ -432,9 +557,8 @@ void Server::responseRegister(int cfd, Msg &msg)
     }
     // 发送请求
     // 转变为网络字节序
-    response.networkByteOrder();
 
-    if (send(cfd, &response, sizeof(response), 0) < 0)
+    if (!sendMsg(cfd, response, 0))
     {
         LOG(LogLevel::ERROR, "注册的结果发送失败" << strerror(errno));
         return;
@@ -489,16 +613,12 @@ void Server::responseLogin(int cfd, Msg &msg)
     }
 
     // 发送请求
-    response.networkByteOrder();
 
-    // 注意：send 返回 ssize_t，用 size_t 接收会导致 < 0 判断恒为假，发送失败无法被发现
-    ssize_t send_size = send(cfd, &response, sizeof(response), 0);
-    if (send_size < 0)
+    if (!sendMsg(cfd, response, 0))
     {
         LOG(LogLevel::ERROR, "登录的结果发送失败" << strerror(errno));
         return;
     }
-    LOG(LogLevel::INFO, "发送数据大小: " << send_size);
 }
 // 响应客户端查询请求函数
 void Server::responseQuery(int cfd, Msg &msg)
@@ -544,9 +664,8 @@ void Server::responseQuery(int cfd, Msg &msg)
     }
     // 发送请求
     // 转变为网络字节序
-    response.networkByteOrder();
 
-    if (send(cfd, &response, sizeof(response), 0) < 0)
+    if (!sendMsg(cfd, response, 0))
     {
         LOG(LogLevel::ERROR, "单词查询的结果发送失败" << strerror(errno));
         return;
@@ -571,8 +690,7 @@ void Server::responseHistory(int cfd, Msg &msg)
         errorMsg.type = H;
         safeStrcpy(errorMsg.name, NAME_BUF_SIZE, msg.name);
         safeStrcpy(errorMsg.text, TEXT_BUF_SIZE, "**ERROR**");
-        errorMsg.networkByteOrder();
-        send(cfd, &errorMsg, sizeof(errorMsg), 0);
+        sendMsg(cfd, errorMsg, 0);
         return;
     }
 
@@ -584,8 +702,7 @@ void Server::responseHistory(int cfd, Msg &msg)
         emptyMsg.type = H;
         safeStrcpy(emptyMsg.name, NAME_BUF_SIZE, msg.name);
         safeStrcpy(emptyMsg.text, TEXT_BUF_SIZE, "**EMPTY**");
-        emptyMsg.networkByteOrder();
-        send(cfd, &emptyMsg, sizeof(emptyMsg), 0);
+        sendMsg(cfd, emptyMsg, 0);
     }
     else
     {
@@ -597,36 +714,20 @@ void Server::responseHistory(int cfd, Msg &msg)
             response.type = H;
             safeStrcpy(response.name, NAME_BUF_SIZE, msg.name);
             safeStrcpy(response.text, TEXT_BUF_SIZE, historyRecords[i].c_str());
-            response.networkByteOrder();
 
-            ssize_t bytesSent = 0;
-            ssize_t totalSize=sizeof(response);
-            const char* data=reinterpret_cast<const char*>(&response);
+            // 短写与 EAGAIN 重试已在 sendMsg 内部处理，这里只判断成败
+            if (!sendMsg(cfd, response, MSG_DONTWAIT))
+            {
+                LOG(LogLevel::ERROR,"发送历史记录失败");
 
-            while(bytesSent<totalSize){
-                ssize_t result = send(cfd,data+bytesSent,totalSize-bytesSent,MSG_DONTWAIT);
-                if(result<0){
-                    if(errno==EAGAIN || errno==EWOULDBLOCK){
-                        //发送缓存区满，等待一段时间重试
-                        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-                        continue;
-                    }else{
-                        //真正的发送错误
-                        LOG(LogLevel::ERROR,"发送历史记录失败："<<strerror(errno));
-
-                        //尝试发送错误通知客户端
-                        Msg errorMsg;
-                        memset(&errorMsg,0,sizeof(errorMsg));
-                        errorMsg.type=H;
-                        safeStrcpy(errorMsg.name, NAME_BUF_SIZE, msg.name);
-                        safeStrcpy(errorMsg.text, TEXT_BUF_SIZE, "**ERROR**");
-                        errorMsg.networkByteOrder();
-                        send(cfd,&errorMsg,sizeof(errorMsg),MSG_DONTWAIT);
-                        return;
-                    }
-                }else{
-                    bytesSent+=result;
-                }
+                //尝试发送错误通知客户端
+                Msg errorMsg;
+                memset(&errorMsg,0,sizeof(errorMsg));
+                errorMsg.type=H;
+                safeStrcpy(errorMsg.name, NAME_BUF_SIZE, msg.name);
+                safeStrcpy(errorMsg.text, TEXT_BUF_SIZE, "**ERROR**");
+                sendMsg(cfd, errorMsg, MSG_DONTWAIT);
+                return;
             }
             //每次发送10条记录添加一个小延迟，避免淹没接收端
             if((i+1)%10==0){
@@ -642,11 +743,9 @@ void Server::responseHistory(int cfd, Msg &msg)
     overMsg.type = H;
     safeStrcpy(overMsg.name, NAME_BUF_SIZE, msg.name);
     safeStrcpy(overMsg.text, TEXT_BUF_SIZE, "**OVER**");
-    overMsg.networkByteOrder();
 
-   ssize_t result = send(cfd, &overMsg, sizeof(overMsg), MSG_DONTWAIT);
-    if (result < 0) {
-        LOG(LogLevel::ERROR, "发送历史记录结束标志失败: " << strerror(errno));
+    if (!sendMsg(cfd, overMsg, MSG_DONTWAIT)) {
+        LOG(LogLevel::ERROR, "发送历史记录结束标志失败");
     } else {
         LOG(LogLevel::INFO, "历史记录发送完成，共发送 " << historyRecords.size() << " 条记录");
     }
@@ -686,9 +785,8 @@ void Server::responseQuit(int cfd, Msg &msg)
         LOG(LogLevel::ERROR, "用户退出失败: " << msg.name << " 原因: " << result);
     }
 
-    response.networkByteOrder();
 
-    if (send(cfd, &response, sizeof(response), 0) < 0)
+    if (!sendMsg(cfd, response, 0))
     {
         LOG(LogLevel::ERROR, "发送退出结果失败: " << strerror(errno));
     }
@@ -710,8 +808,7 @@ void Server::responseCollect(int cfd, Msg &msg)
     {
         LOG(LogLevel::ERROR, "收藏请求格式错误，字段数: " << fields.size());
         safeStrcpy(response.text, TEXT_BUF_SIZE, "format is incorrect");
-        response.networkByteOrder();
-        if (send(cfd, &response, sizeof(response), 0) < 0)
+        if (!sendMsg(cfd, response, 0))
         {
             LOG(LogLevel::ERROR, "发送错误响应失败");
         }
@@ -754,8 +851,7 @@ void Server::responseCollect(int cfd, Msg &msg)
         LOG(LogLevel::ERROR, "收藏功能出现未知错误");
         safeStrcpy(response.text, TEXT_BUF_SIZE, "collect_error");
     }
-    response.networkByteOrder();
-    if (send(cfd, &response, sizeof(response), 0) < 0)
+    if (!sendMsg(cfd, response, 0))
     {
         LOG(LogLevel::ERROR, "发送错误响应失败");
     }
@@ -776,8 +872,7 @@ void Server::responseCollectRecord(int cfd, Msg &msg)
         errorMsg.type = D;
         safeStrcpy(errorMsg.name, NAME_BUF_SIZE, msg.name);
         safeStrcpy(errorMsg.text, TEXT_BUF_SIZE, "**ERROR**");
-        errorMsg.networkByteOrder();
-        send(cfd, &errorMsg, sizeof(errorMsg), 0);
+        sendMsg(cfd, errorMsg, 0);
         return;
     }
 
@@ -789,8 +884,7 @@ void Server::responseCollectRecord(int cfd, Msg &msg)
         emptyMsg.type = D;
         safeStrcpy(emptyMsg.name, NAME_BUF_SIZE, msg.name);
         safeStrcpy(emptyMsg.text, TEXT_BUF_SIZE, "**EMPTY**");
-        emptyMsg.networkByteOrder();
-        send(cfd, &emptyMsg, sizeof(emptyMsg), 0);
+        sendMsg(cfd, emptyMsg, 0);
     }
     else
     {
@@ -802,9 +896,8 @@ void Server::responseCollectRecord(int cfd, Msg &msg)
             response.type = D;
             safeStrcpy(response.name, NAME_BUF_SIZE, msg.name);
             safeStrcpy(response.text, TEXT_BUF_SIZE, record.c_str());
-            response.networkByteOrder();
 
-            if (send(cfd, &response, sizeof(response), 0) < 0)
+            if (!sendMsg(cfd, response, 0))
             {
                 LOG(LogLevel::ERROR, "发送收藏记录失败");
                 return;
@@ -818,9 +911,8 @@ void Server::responseCollectRecord(int cfd, Msg &msg)
     overMsg.type = D;
     safeStrcpy(overMsg.name, NAME_BUF_SIZE, msg.name);
     safeStrcpy(overMsg.text, TEXT_BUF_SIZE, "**OVER**");
-    overMsg.networkByteOrder();
 
-    if (send(cfd, &overMsg, sizeof(overMsg), 0) < 0)
+    if (!sendMsg(cfd, overMsg, 0))
     {
         LOG(LogLevel::ERROR, "发送收藏记录结束标志失败");
     }
@@ -869,8 +961,7 @@ void Server::responseUnregister(int cfd, Msg &msg)
         LOG(LogLevel::ERROR, "用户注销失败: " << msg.name << " 原因: " << result);
     }
 
-    response.networkByteOrder();
-    if (send(cfd, &response, sizeof(response), 0) < 0)
+    if (!sendMsg(cfd, response, 0))
     {
         LOG(LogLevel::ERROR, "发送注销结果失败" << strerror(errno));
     }
@@ -917,8 +1008,7 @@ void Server::responseVocabulary(int cfd, Msg &msg)
     if (fields.size() < static_cast<size_t>(VOCAB_FIELD_COUNT))
     {
         safeStrcpy(response.text, TEXT_BUF_SIZE, "format is incorrect");
-        response.networkByteOrder();
-        if (send(cfd, &response, sizeof(response), 0) < 0)
+        if (!sendMsg(cfd, response, 0))
         {
             LOG(LogLevel::ERROR, "发送生词本格式错误响应失败");
         }
@@ -964,9 +1054,8 @@ void Server::responseVocabulary(int cfd, Msg &msg)
 
     // 响应格式：状态码|^|单词
     snprintf(response.text, sizeof(response.text), "%s%s%s", status.c_str(), VOCAB_FIELD_SEP, word.c_str());
-    response.networkByteOrder();
 
-    if (send(cfd, &response, sizeof(response), 0) < 0)
+    if (!sendMsg(cfd, response, 0))
     {
         LOG(LogLevel::ERROR, "发送生词本操作结果失败" << strerror(errno));
     }
@@ -986,8 +1075,7 @@ void Server::responseVocabularyList(int cfd, Msg &msg)
         errorMsg.type = W;
         safeStrcpy(errorMsg.name, NAME_BUF_SIZE, msg.name);
         safeStrcpy(errorMsg.text, TEXT_BUF_SIZE, "**ERROR**");
-        errorMsg.networkByteOrder();
-        send(cfd, &errorMsg, sizeof(errorMsg), 0);
+        sendMsg(cfd, errorMsg, 0);
         return;
     }
 
@@ -999,8 +1087,7 @@ void Server::responseVocabularyList(int cfd, Msg &msg)
         emptyMsg.type = W;
         safeStrcpy(emptyMsg.name, NAME_BUF_SIZE, msg.name);
         safeStrcpy(emptyMsg.text, TEXT_BUF_SIZE, "**EMPTY**");
-        emptyMsg.networkByteOrder();
-        send(cfd, &emptyMsg, sizeof(emptyMsg), 0);
+        sendMsg(cfd, emptyMsg, 0);
         return;
     }
 
@@ -1012,27 +1099,12 @@ void Server::responseVocabularyList(int cfd, Msg &msg)
         response.type = W;
         safeStrcpy(response.name, NAME_BUF_SIZE, msg.name);
         safeStrcpy(response.text, TEXT_BUF_SIZE, vocabularyRecords[i].c_str());
-        response.networkByteOrder();
 
-        ssize_t bytesSent = 0;
-        ssize_t totalSize = sizeof(response);
-        const char *data = reinterpret_cast<const char *>(&response);
-
-        while (bytesSent < totalSize)
+        // 短写与 EAGAIN 重试已在 sendMsg 内部处理，这里只判断成败
+        if (!sendMsg(cfd, response, MSG_DONTWAIT))
         {
-            ssize_t result = send(cfd, data + bytesSent, totalSize - bytesSent, MSG_DONTWAIT);
-            if (result < 0)
-            {
-                if (errno == EAGAIN || errno == EWOULDBLOCK)
-                {
-                    // 发送缓冲区满，稍作等待后重试
-                    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-                    continue;
-                }
-                LOG(LogLevel::ERROR, "发送生词本记录失败：" << strerror(errno));
-                return;
-            }
-            bytesSent += result;
+            LOG(LogLevel::ERROR, "发送生词本记录失败");
+            return;
         }
         LOG(LogLevel::DEBUG, "已发送生词本记录" << (i + 1) << "/" << vocabularyRecords.size());
     }
@@ -1043,11 +1115,10 @@ void Server::responseVocabularyList(int cfd, Msg &msg)
     overMsg.type = W;
     safeStrcpy(overMsg.name, NAME_BUF_SIZE, msg.name);
     safeStrcpy(overMsg.text, TEXT_BUF_SIZE, "**OVER**");
-    overMsg.networkByteOrder();
 
-    if (send(cfd, &overMsg, sizeof(overMsg), 0) < 0)
+    if (!sendMsg(cfd, overMsg, 0))
     {
-        LOG(LogLevel::ERROR, "发送生词本记录结束标志失败: " << strerror(errno));
+        LOG(LogLevel::ERROR, "发送生词本记录结束标志失败");
     }
     else
     {
