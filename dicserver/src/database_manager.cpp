@@ -1,5 +1,6 @@
 #include "database_manager.hpp"
 #include "password_hash.hpp"
+#include "word_cache.hpp"
 #include <iostream>
 #include <string>
 #include <cstring>
@@ -656,7 +657,19 @@ bool DatabaseManager::querryWord(const string name, const string &word, string &
 {
     bool found = false;
     auto conn = getDictConnection();
+
+    // 1) 先走 LRU 热点词缓存。
+    //    dict 表只在启动时导入、运行期只读，因此缓存无需失效；
+    //    命中即跳过一次 SQLite prepare/step 与 dict_mutex_ 争用。
+    //    只缓存"查得到"的结果：查不到的词不写入，避免热词被低频生僻词挤占。
+    WordCache &cache = WordCache::getInstance();
+    if (cache.get(word, meaning))
     {
+        found = true;
+    }
+    else
+    {
+        // 2) 未命中：查 dict 表，查到后回填缓存
         // dict 表为最高频只读路径，独占表级锁，不被任何用户写操作阻塞
         lock_guard<mutex> lock(dict_mutex_);
         const char *sql = "select mean from dict where word=?;";
@@ -681,6 +694,11 @@ bool DatabaseManager::querryWord(const string name, const string &word, string &
             }
         }
         sqlite3_finalize(tmt);
+
+        if (found)
+        {
+            cache.put(word, meaning);
+        }
     }
 
     if (collectFlag != nullptr)

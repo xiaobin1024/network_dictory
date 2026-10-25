@@ -16,3 +16,12 @@ add_executable(server
 
 target_include_directories(server PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(server PRIVATE SQLite::SQLite3 Threads::Threads)
+
+# ---------------- 单元测试 ----------------
+# word_cache 是 header-only 且只依赖标准库，可脱离 SQLite/网络独立验证。
+# 用 ctest 跑：cmake -S . -B build && cmake --build build && ctest --test-dir build
+enable_testing()
+
+add_executable(word_cache_test test/test_word_cache.cpp)
+target_include_directories(word_cache_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME word_cache_test COMMAND word_cache_test)
