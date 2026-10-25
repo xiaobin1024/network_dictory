@@ -1190,3 +1190,43 @@ QPushButton#vocabularyExportPdfBtn:hover {
     background-color: {{bg-primary}};
     border-radius: 8px;
 }
+
+/* ==================== 网络连接遮罩 ==================== */
+#connectionOverlay {
+    background: rgba(17, 24, 39, 0.45);
+}
+#connPanel {
+    background-color: {{bg-primary}};
+    border: 1px solid {{border-color}};
+    border-radius: 12px;
+}
+#connPrimaryLabel {
+    font-size: 16px;
+    font-weight: 600;
+    color: {{text-primary}};
+    background: transparent;
+}
+#connSecondaryLabel {
+    font-size: 14px;
+    color: {{text-secondary}};
+    background: transparent;
+}
+#connHintLabel {
+    font-size: 13px;
+    color: {{text-disabled}};
+    background: transparent;
+}
+#connRetryBtn {
+    background-color: {{btn-primary-bg}};
+    color: {{btn-primary-text}};
+    border: none;
+    border-radius: 6px;
+    padding: 8px 20px;
+    font-size: 14px;
+}
+#connRetryBtn:hover {
+    background-color: {{btn-primary-hover}};
+}
+#connRetryBtn:pressed {
+    background-color: {{btn-primary-pressed}};
+}

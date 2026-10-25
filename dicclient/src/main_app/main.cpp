@@ -22,6 +22,7 @@
 #include"word_vocabulary.h"
 
 #include"base/theme_manager.h"
+#include"base/connection_overlay.h"
 
 #include"system/system_sidebar.h"
 #include"word/word_card.h"
@@ -189,6 +190,21 @@ int main(int argc, char *argv[])
         window->mainLayout()->addWidget(pageController);
         qDebug() << "PageController 添加到窗口完成";
 
+        // 创建连接状态遮罩：未连接 / 断线重连时阻塞输入并显示加载画面
+        ConnectionOverlay* connectionOverlay = new ConnectionOverlay(window);
+        connectionOverlay->setBlockTarget(pageController);
+        connectionOverlay->setGiveUpAttempts(10);
+        QObject::connect(networkManager, &NetworkManager::connectionEstablished,
+                         connectionOverlay, &ConnectionOverlay::hideOverlay);
+        QObject::connect(networkManager, &NetworkManager::connectionLost,
+                         connectionOverlay, &ConnectionOverlay::showReconnecting);
+        QObject::connect(networkManager, &NetworkManager::reconnectAttempt,
+                         connectionOverlay, &ConnectionOverlay::updateAttempt);
+        QObject::connect(connectionOverlay, &ConnectionOverlay::retryRequested,
+                         networkManager, [networkManager]() {
+                             networkManager->connectToServer();
+                         });
+
         // window->mainLayout()->addWidget(mainPage);
         // qDebug()<<"MainPage 添加到窗口成功";
 
@@ -200,6 +216,9 @@ int main(int argc, char *argv[])
         } else {
             qDebug() << "正在连接到服务器...";
             networkManager->connectToServer();
+            // 若 600ms 内仍未连上（连接成功会先触发 hideOverlay），再弹出遮罩，
+            // 避免服务器在线时加载画面一闪而过。
+            connectionOverlay->armPendingShow(600);
             // 等待建立连接 - 使用QTimer避免阻塞
             QTimer::singleShot(1000, [&]() {
                 qDebug() << "连接等待完成";

@@ -23,6 +23,8 @@ find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Core Widgets TextToSpeech
 add_library(ui STATIC
   base/base_widget.h
   base/base_widget.cpp
+  base/connection_overlay.h
+  base/connection_overlay.cpp
    base/theme_manager.h
    base/theme_manager.cpp
    icons.qrc
