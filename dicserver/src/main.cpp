@@ -1,8 +1,10 @@
 #include"database_manager.hpp"
 #include"server.hpp"
 #include"connectionPool.hpp"
+#include"word_cache.hpp"
 #include <iostream>
 #include <memory>
+#include <string>
 #include <cstdlib>
 #include <csignal>
 
@@ -16,6 +18,20 @@ int main(int argc, const char *argv[])
     }
     // 向已关闭的连接写数据时只返回 EPIPE，避免 SIGPIPE 直接终止进程
     signal(SIGPIPE, SIG_IGN);
+
+    // 压测开关：DICT_DISABLE_WORD_CACHE=1 关闭热点词缓存，
+    // 用于在同一二进制、同一台机器上做"有缓存/无缓存"的 A/B 对比。
+    const char *no_cache = getenv("DICT_DISABLE_WORD_CACHE");
+    if (no_cache != nullptr && string(no_cache) == "1")
+    {
+        WordCache::getInstance().setEnabled(false);
+        cout << "[config] 热点词缓存已关闭（DICT_DISABLE_WORD_CACHE=1）" << endl;
+    }
+    else
+    {
+        cout << "[config] 热点词缓存已开启，容量=" << WordCache::getInstance().capacity() << " 条" << endl;
+    }
+
     try
     {
         //初始化连接池(参数1：数据库路径，参数2：初始连接数，参数3：最大空闲连接数)

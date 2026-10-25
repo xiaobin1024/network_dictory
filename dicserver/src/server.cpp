@@ -1,4 +1,5 @@
 #include "server.hpp"
+#include "word_cache.hpp"
 
 #include <iostream>
 #include <string>
@@ -9,6 +10,8 @@
 #include <chrono>
 #include <thread>
 #include <vector>
+#include <atomic>
+#include <iomanip>
 #include <cerrno>
 #include <unistd.h>      // close / usleep
 #include <fcntl.h>       // fcntl / O_NONBLOCK
@@ -511,6 +514,17 @@ void Server::responseQuery(int cfd, Msg &msg)
 
     int collectFlag = 0;
     int vocabFlag = 0;
+    // 每 5000 次查询输出一次热点词缓存命中率，供压测/线上观测（频率低，不影响主链路）
+    static atomic<size_t> query_counter{0};
+    if (++query_counter % 5000 == 0)
+    {
+        WordCache &cache = WordCache::getInstance();
+        LOG(LogLevel::INFO,
+            "cache stat: hit=" << cache.hitCount() << " miss=" << cache.missCount()
+                               << " size=" << cache.size() << "/" << cache.capacity()
+                               << " rate=" << std::fixed << std::setprecision(2)
+                               << cache.hitRate() * 100.0 << "%");
+    }
     if (db_manager_.querryWord(msg.name, msg.text, meaning, &collectFlag, &vocabFlag))
     {
         // 响应格式与客户端 WordSearch::processSearchResponse 约定：
