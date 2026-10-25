@@ -52,8 +52,8 @@ bool DatabaseManager::initalizeDatabase()
 // 初始化用户表
 bool DatabaseManager::initializeUserDB()
 {
-    // 使用互斥锁锁定数据库操作，防止出现多线程竞态
-    lock_guard<mutex> lock(db_mutex_);
+    // 启动期建表/迁移：独立 init 锁，避免与业务表级锁相互竞争
+    lock_guard<mutex> lock(init_mutex_);
     // 从连接池中获取一个数据库连接
     auto conn = getUsrConnection();
     // 准备sql语句，创建用户表和历史记录表的sql语句
@@ -183,7 +183,7 @@ bool DatabaseManager::initializeUserDB()
 bool DatabaseManager::initializeDicDB()
 {
     // 创建互斥锁，保护单词表
-    lock_guard<mutex> lock(db_mutex_);
+    lock_guard<mutex> lock(init_mutex_);
     // 准备创建单词数据库的sql语句
     const char *createDictSql = "create table if not exists dict(word text,mean text);";
     // 从连接池中获取一个数据库连接
@@ -350,7 +350,7 @@ bool DatabaseManager::registerUser(const string &name, const string &password,
                                    long long *outUserId, int *outRole)
 {
     // 创建互斥锁，保护用户表
-    lock_guard<mutex> lock(db_mutex_);
+    lock_guard<mutex> lock(usr_mutex_);
     // 从连接池中获取一个数据库连接
     auto conn = getUsrConnection();
     // 准备sql语句，？表示通配符，用于后面的绑定，0表示默认注册表时，所有用户都是离线的
@@ -427,7 +427,7 @@ bool DatabaseManager::registerUser(const string &name, const string &password,
 int DatabaseManager::loginUser(const string &name, const string &password, bool &is_online,
                                long long *outUserId, int *outRole)
 {
-    std::lock_guard<std::mutex> lock(db_mutex_);
+    std::lock_guard<std::mutex> lock(usr_mutex_);
 
     // 获取数据库连接
     auto conn = getUsrConnection();
@@ -594,7 +594,7 @@ int DatabaseManager::loginUser(const string &name, const string &password, bool 
 const char *DatabaseManager::logoutUser(const string &name)
 {
     // 创建互斥锁，保护用户表
-    lock_guard<mutex> lock(db_mutex_);
+    lock_guard<mutex> lock(usr_mutex_);
     const char *result = "error";
     auto conn = getUsrConnection(); // 从连接池获取连接
     // 预编译sql语句
@@ -657,7 +657,8 @@ bool DatabaseManager::querryWord(const string name, const string &word, string &
     bool found = false;
     auto conn = getDictConnection();
     {
-        lock_guard<mutex> lock(db_mutex_);
+        // dict 表为最高频只读路径，独占表级锁，不被任何用户写操作阻塞
+        lock_guard<mutex> lock(dict_mutex_);
         const char *sql = "select mean from dict where word=?;";
         sqlite3_stmt *tmt = NULL;
 
@@ -696,7 +697,7 @@ bool DatabaseManager::querryWord(const string name, const string &word, string &
         // 查询收藏状态
         if (collectFlag != nullptr)
         {
-            lock_guard<mutex> lock(db_mutex_);
+            lock_guard<mutex> lock(collect_mutex_);
             sqlite3_stmt *tmt = nullptr;
             const char *check_sql = "select count(*) from collect where name=? and word=?;";
             if (sqlite3_prepare_v2(conn.get(), check_sql, -1, &tmt, nullptr) == SQLITE_OK)
@@ -713,7 +714,7 @@ bool DatabaseManager::querryWord(const string name, const string &word, string &
         // 查询生词本状态
         if (vocabFlag != nullptr)
         {
-            lock_guard<mutex> lock(db_mutex_);
+            lock_guard<mutex> lock(vocab_mutex_);
             sqlite3_stmt *tmt = nullptr;
             const char *check_sql = "select count(*) from vocabulary where name=? and word=?;";
             if (sqlite3_prepare_v2(conn.get(), check_sql, -1, &tmt, nullptr) == SQLITE_OK)
@@ -734,8 +735,8 @@ bool DatabaseManager::querryWord(const string name, const string &word, string &
 // 历史记录函数，将给定的信息插入到数据库中
 bool DatabaseManager::recordHistory(const string &name, const string &word, const string &meaning, const string &time)
 {
-    // 创建互斥锁，保护用户表
-    lock_guard<mutex> lock(db_mutex_);
+    // 创建互斥锁，保护 history 表
+    lock_guard<mutex> lock(history_mutex_);
 
     // 从连接池获取连接 - 使用用户数据库连接
     auto conn = getUsrConnection();
@@ -774,8 +775,8 @@ bool DatabaseManager::recordHistory(const string &name, const string &word, cons
 
 bool DatabaseManager::getHistory(const string &name, vector<string> &historyRecords)
 {
-    // 创建互斥锁，保护用户表
-    lock_guard<mutex> lock(db_mutex_);
+    // 创建互斥锁，保护 history 表
+    lock_guard<mutex> lock(history_mutex_);
 
     // 从连接池获取连接 - 使用用户数据库连接
     auto conn = getUsrConnection();
@@ -834,8 +835,8 @@ const char *DatabaseManager::collectWord(const string &name, const string &word,
                                          const string &meaning, const string &phonetic,
                                          const string &example, const string &translation)
 {
-    // 创建互斥锁，保护用户表
-    lock_guard<mutex> lock(db_mutex_);
+    // 创建互斥锁，保护 collect 表
+    lock_guard<mutex> lock(collect_mutex_);
 
     // 从连接池获取连接 - 使用用户数据库连接
     auto conn = getUsrConnection();
@@ -903,8 +904,8 @@ cleanup:
 
 const char *DatabaseManager::cancelCollectWord(const string &name, const string &word)
 {
-    // 创建互斥锁，保护用户表
-    lock_guard<mutex> lock(db_mutex_);
+    // 创建互斥锁，保护 collect 表
+    lock_guard<mutex> lock(collect_mutex_);
 
     // 从连接池获取连接 - 使用用户数据库连接
     auto conn = getUsrConnection();
@@ -943,8 +944,8 @@ cleanup:
 
 bool DatabaseManager::getCollectWords(const string &name, vector<string> &collectWords)
 {
-    // 创建互斥锁，保护用户表
-    lock_guard<mutex> lock(db_mutex_);
+    // 创建互斥锁，保护 collect 表
+    lock_guard<mutex> lock(collect_mutex_);
 
     // 从连接池获取连接 - 使用用户数据库连接
     auto conn = getUsrConnection();
@@ -1021,7 +1022,7 @@ const char *DatabaseManager::updateVocabulary(const string &name, const string &
                                               bool isAdd)
 {
     // 创建互斥锁，保护生词本表
-    lock_guard<mutex> lock(db_mutex_);
+    lock_guard<mutex> lock(vocab_mutex_);
 
     // 从连接池获取连接 - 使用用户数据库连接
     auto conn = getUsrConnection();
@@ -1117,7 +1118,7 @@ cleanup:
 bool DatabaseManager::getVocabularyWords(const string &name, vector<string> &vocabularyRecords)
 {
     // 创建互斥锁，保护生词本表
-    lock_guard<mutex> lock(db_mutex_);
+    lock_guard<mutex> lock(vocab_mutex_);
 
     // 从连接池获取连接 - 使用用户数据库连接
     auto conn = getUsrConnection();
@@ -1190,8 +1191,14 @@ bool DatabaseManager::getVocabularyWords(const string &name, vector<string> &voc
 const char *DatabaseManager::unregisterUser(const string &name, const string &password,
                                             long long *outUserId)
 {
-    // 创建互斥锁，保证删除用户与关联数据是一个原子操作
-    lock_guard<mutex> lock(db_mutex_);
+    // 跨表删除需保证原子性：按固定顺序（usr -> history -> collect -> vocab）
+    // 用 std::lock 一次性获取四把表级锁并 adopt_lock 接管。
+    // 固定顺序是全项目锁序约定，任何跨表路径都必须遵守，否则可能死锁。
+    std::lock(usr_mutex_, history_mutex_, collect_mutex_, vocab_mutex_);
+    std::lock_guard<std::mutex> lockUsr(usr_mutex_, std::adopt_lock);
+    std::lock_guard<std::mutex> lockHistory(history_mutex_, std::adopt_lock);
+    std::lock_guard<std::mutex> lockCollect(collect_mutex_, std::adopt_lock);
+    std::lock_guard<std::mutex> lockVocab(vocab_mutex_, std::adopt_lock);
 
     // 从连接池获取连接 - 使用用户数据库连接
     auto conn = getUsrConnection();

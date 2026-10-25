@@ -82,8 +82,22 @@ public:
     bool getVocabularyWords(const std::string &name, std::vector<std::string> &vocabularyRecords);
 
 private:
-    // 用户库和单词库共用互斥锁
-    std::mutex db_mutex_;
+    // 锁策略：原全局单锁串行化了全部数据库操作，使连接池的并发能力归零
+    // （10 个连接同一时刻只允许一个线程操作数据库）。现按表拆分为表级锁：
+    //   - dict_mutex_     dict 表（查词，最高频只读路径，不再被用户写操作阻塞）
+    //   - usr_mutex_      usr 表（注册/登录/登出/注销）
+    //   - history_mutex_  history 表
+    //   - collect_mutex_  collect 表（收藏）
+    //   - vocab_mutex_    vocabulary 表（生词本）
+    //   - init_mutex_     建表与版本迁移（仅启动期，独立锁避免与业务锁竞争）
+    // 跨表操作（unregisterUser 删四表、querryWord 查三表）用 std::lock
+    // 一次性按固定顺序获取多把锁，避免死锁。
+    std::mutex init_mutex_;
+    std::mutex dict_mutex_;
+    std::mutex usr_mutex_;
+    std::mutex history_mutex_;
+    std::mutex collect_mutex_;
+    std::mutex vocab_mutex_;
     // 获取当前时间的字符串表示（用于历史/收藏/生词本的时间戳记录）
     static std::string getCurrentTimeStr();
     // 私有构造函数和析构函数，防止外部直接创建或销毁实例
