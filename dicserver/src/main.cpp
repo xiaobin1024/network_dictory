@@ -52,9 +52,10 @@ int main(int argc, const char *argv[])
         Server server(db_manager,thread_pool,argv[1],atoi(argv[2]));
         //启动服务器（阻塞运行，直到收到 SIGINT/SIGTERM 触发优雅关闭）
         server.start();
-        // 优雅关闭收尾：等待所有工作线程处理完在途请求后退出。
-        // 此时 server 与 db_manager 仍在作用域内，避免析构顺序竞态导致工作线程访问已销毁对象。
-        thread_pool->join();
+        // 优雅关闭收尾：先停止接收新任务并唤醒空闲工作线程，再等待在途任务执行完毕。
+        // 空闲线程立即退出；正在处理连接的线程最多再等一个收发超时周期（10s）后退出，
+        // 故整体等待有上界。此时 server 与 db_manager 仍在作用域内，避免析构顺序竞态。
+        thread_pool->shutdown();
     }
     catch(const std::exception& e)
     {

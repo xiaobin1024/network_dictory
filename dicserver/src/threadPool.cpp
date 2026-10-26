@@ -76,6 +76,22 @@ void threadPool::join()
     }
 }
 
+// 优雅关闭收尾：先置停止标志并唤醒全部阻塞中的工作线程，再等待它们退出。
+// - 空闲工作线程：被 notify_all 唤醒后看到 stop 且队列为空，立即返回；
+// - 正在执行任务的工作线程：把当前任务跑完（连接收发的超时即其上界）后回到循环，
+//   此时 stop 已置位，同样立即返回。
+// 因此整体等待有上界，不会无限卡住。
+void threadPool::shutdown()
+{
+    {
+        std::unique_lock<std::mutex> lock(task_mutex);
+        stop = true;
+        pendingTasks = 0;
+    }
+    task_cv.notify_all();
+    join();
+}
+
 void threadPool::startThreadPool(size_t numThreads)
 {
     workers.reserve(numThreads);

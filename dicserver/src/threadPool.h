@@ -37,6 +37,11 @@ public:
     // 阻塞等待所有工作线程退出（配合进程优雅关闭：在 Server/DB 仍存活时调用，避免析构竞态）
     void join();
 
+    // 停止接收新任务并回收所有工作线程：置停止标志 -> 唤醒全部阻塞线程 -> 等待其退出。
+    // 注意：不能只调用 join()——空闲工作线程阻塞在条件变量上，若 stop 未置位则永远
+    // 不会被唤醒，join() 将永久死锁（进程无法自行退出，只能被 SIGKILL）。
+    void shutdown();
+
     // 查询状态
     size_t getPendingTasks() const { return static_cast<size_t>(pendingTasks); }
     bool isFull() const { return static_cast<size_t>(pendingTasks) >= maxQueueSize; }
