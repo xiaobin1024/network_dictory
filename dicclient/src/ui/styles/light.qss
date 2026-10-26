@@ -8,6 +8,8 @@
 QWidget, QDialog, QFrame {
     background-color: {{bg-primary}};   /* 纯白 #FFFFFF：顶层表面背景 */
     color: {{text-primary}};              /* 近黑 #111827：主阅读文字 */
+    selection-background-color: {{input-focus}};
+    selection-color: #FFFFFF;
 }
 
 /* ================= 按钮 ================= */
@@ -24,7 +26,11 @@ QPushButton:hover {
     border-color: {{btn-primary-hover}};
 }
 QPushButton:pressed {
-    background-color: {{btn-primary-pressed}}; /* 更深蓝 #1D4ED8：按下状态 */
+    background-color: {{btn-primary-pressed}};   /* 更深蓝 #1D4ED8：按下状态 */
+}
+QPushButton:focus {
+    /* 键盘聚焦时的蓝色描边，提升可访问性（仅改边框色，不过度喧宾夺主） */
+    border-color: {{input-focus}};
 }
 QPushButton:disabled {
     background-color: {{bg-tertiary}};       /* 浅灰 #E5E7EB：禁用底 */
@@ -48,6 +54,8 @@ QLineEdit, QTextEdit, QPlainTextEdit {
     border-radius: 4px;
     padding: 6px;
     color: {{text-primary}};                   /* 近黑 #111827 */
+    selection-background-color: {{input-focus}};
+    selection-color: #FFFFFF;
 }
 QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus {
     border: 1px solid {{input-focus}};       /* 亮蓝 #3B82F6：焦点高亮 */
@@ -102,6 +110,23 @@ QScrollBar::handle:vertical:hover {
 }
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
 
+/* 横向滚动条（与纵向保持一致） */
+QScrollBar:horizontal {
+    background: {{scroll-bg}};
+    height: 8px;
+    border-radius: 4px;
+    margin: 0;
+}
+QScrollBar::handle:horizontal {
+    background: {{scroll-handle}};
+    border-radius: 4px;
+    min-width: 20px;
+}
+QScrollBar::handle:horizontal:hover {
+    background: {{scroll-hover}};
+}
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width: 0; }
+
 /* ================= 状态属性 (动态) ================= */
 BaseWidget[uiState="Loading"] {
     background-color: {{bg-secondary}};        /* 淡灰 #F3F4F6 */
@@ -130,6 +155,79 @@ QLabel#messageOverlay[messageType="error"] {
     background-color: {{error-bg}};            /* 红 #EF4444 */
     color: {{error-text}};                   /* 白 #FFFFFF */
     border: 1px solid {{error-border}};      /* 深红 #DC2626 */
+}
+
+/* ================= 通用组件补全（Tooltip / Menu / CheckBox / Dialog） ================= */
+/* 工具提示：此前无样式，依赖系统默认，暗色下极其突兀；统一为圆角主题气泡 */
+QToolTip {
+    background-color: {{bg-tertiary}};
+    color: {{text-primary}};
+    border: 1px solid {{input-focus}};
+    border-radius: 6px;
+    padding: 5px 9px;
+    font-size: 12px;
+}
+
+/* 通用菜单（覆盖未单独命名的菜单；更多操作菜单 #cardMoreMenu 以 ID 样式优先） */
+QMenu {
+    background-color: {{bg-tertiary}};
+    border: 1px solid {{border-color}};
+    border-radius: 6px;
+    padding: 4px;
+}
+QMenu::item {
+    padding: 6px 16px;
+    border-radius: 4px;
+    color: {{text-primary}};
+}
+QMenu::item:selected {
+    background-color: {{input-focus}};
+    color: #FFFFFF;
+}
+QMenu::item:disabled {
+    color: {{text-disabled}};
+}
+QMenu::separator {
+    height: 1px;
+    background-color: {{border-color}};
+    margin: 4px 8px;
+}
+
+/* 复选框：原生勾选框在暗色背景上几乎不可见，这里显式绘制主题化指示器 */
+QCheckBox {
+    color: {{text-primary}};
+    spacing: 6px;
+}
+QCheckBox::indicator {
+    width: 16px;
+    height: 16px;
+    border-radius: 4px;
+    border: 1px solid {{input-border}};
+    background-color: {{input-bg}};
+}
+QCheckBox::indicator:unchecked:hover {
+    border-color: {{input-focus}};
+}
+QCheckBox::indicator:checked,
+QCheckBox::indicator:indeterminate {
+    background-color: {{btn-primary-bg}};
+    border-color: {{btn-primary-bg}};
+    image: url(:/img/check_white.svg);
+}
+
+/* 对话框（确认框 / 注销二次确认等）：此前为系统默认，改为主题底色 */
+QDialog {
+    background-color: {{bg-primary}};
+}
+QMessageBox {
+    background-color: {{bg-primary}};
+}
+QMessageBox QLabel {
+    color: {{text-primary}};
+    background: transparent;
+}
+QMessageBox QPushButton {
+    min-width: 72px;
 }
 
 /* ================= SystemSidebar 侧边栏 ================= */
@@ -220,6 +318,8 @@ SystemSidebar #deleteButton:hover {
 SystemSidebar #collectButton,
 SystemSidebar #vocabularyButton {
     color: {{text-primary}};                   /* 近黑 #111827 */
+    selection-background-color: {{input-focus}};
+    selection-color: #FFFFFF;
 }
 
 /* 展开/收起切换按钮 */
@@ -232,6 +332,8 @@ SystemSidebar #toggleButton {
 SystemSidebar #toggleButton:hover {
     background-color: {{border-color}};          /* 浅灰 #E5E7EB */
     color: {{text-primary}};                     /* 近黑 #111827 */
+    selection-background-color: {{input-focus}};
+    selection-color: #FFFFFF;
 }
 
 /* 收起状态下按钮尺寸 */
@@ -349,6 +451,8 @@ InteractiveWordCard #cardButtonContainer QPushButton[actionType] {
 InteractiveWordCard #cardButtonContainer QPushButton[actionType]:hover {
     background-color: {{bg-tertiary}};         /* 浅灰 #E5E7EB：悬停背景 */
     color: {{text-primary}};                   /* 近黑 #111827：悬停加深 */
+    selection-background-color: {{input-focus}};
+    selection-color: #FFFFFF;
 }
 
 /* 收藏按钮 - 未激活 */
@@ -394,10 +498,13 @@ InteractiveWordCard #cardMoreMenu::item {
     padding: 6px 12px;
     border-radius: 4px;
     color: {{text-primary}};                     /* 近黑 #111827 */
+    selection-background-color: {{input-focus}};
+    selection-color: #FFFFFF;
 }
 
 InteractiveWordCard #cardMoreMenu::item:selected {
-    background-color: {{bg-secondary}};          /* 淡灰 #F3F4F6 */
+    background-color: {{btn-primary-bg}};          /* 亮蓝 #3B82F6：选中项高亮 */
+    color: #FFFFFF;
 }
 
 InteractiveWordCard #cardMoreMenu::separator {
@@ -602,6 +709,8 @@ InteractiveWordCard #cardMoreMenu::separator {
     border: 1px solid {{border-color}};        /* 浅灰 #E5E7EB：默认边框 */
     border-radius: 8px;                        /* 与卡片统一圆角体系 */
     color: {{text-primary}};                   /* 近黑 #111827 */
+    selection-background-color: {{input-focus}};
+    selection-color: #FFFFFF;
 }
 
 #searchWidget:focus-within,

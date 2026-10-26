@@ -14,5 +14,6 @@
         <file>img/light/star_bright.png</file>
         <file>img/light/star_gray.png</file>
         <file>img/light/vocabulary.png</file>
+        <file>img/check_white.svg</file>
     </qresource>
 </RCC>
