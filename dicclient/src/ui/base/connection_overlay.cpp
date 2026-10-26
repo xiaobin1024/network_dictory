@@ -168,11 +168,15 @@ void ConnectionOverlay::updateAttempt(int current, int /*max*/)
     m_secondaryLabel->setText(QString("已尝试 %1 次").arg(current));
 
     if (current >= m_giveUpAttempts) {
-        m_hintLabel->setText(
-            QString("网络连接异常，已尝试 %1 次仍未成功。\n请检查网络后重启应用，或稍后重新打开。")
-                .arg(current));
-        m_hintLabel->show();
-        m_retryButton->show();
+        // 仅在“阻塞的初始连接态”提示重启并提供手动重试；
+        // 重连态由自动重连（ReconnectionManager）接管内，遮罩非阻塞，不显示死按钮。
+        if (!m_wasConnected) {
+            m_hintLabel->setText(
+                QString("网络连接异常，已尝试 %1 次仍未成功。\n请检查网络后重启应用，或稍后重新打开。")
+                    .arg(current));
+            m_hintLabel->show();
+            m_retryButton->show();
+        }
     }
 }
 
@@ -184,6 +188,8 @@ void ConnectionOverlay::hideOverlay()
     m_shown = false;
     hide();
     m_spinner->stop();
+    // 复位鼠标穿透属性，避免影响后续阻塞态（初始连接）
+    setAttribute(Qt::WA_TransparentForMouseEvents, false);
     if (m_blockTarget) {
         m_blockTarget->setEnabled(true);
     }
@@ -199,13 +205,14 @@ void ConnectionOverlay::armPendingShow(int delayMs)
 
 void ConnectionOverlay::ensureVisible(bool wasConnected)
 {
+    m_wasConnected = wasConnected;
     m_shown = true;
     if (m_pendingTimer->isActive()) {
         m_pendingTimer->stop();
     }
 
     m_primaryLabel->setText(wasConnected
-                                ? QString("连接已断开，正在尝试重新连接…")
+                                ? QString("连接已断开，正在自动重连…")
                                 : QString("正在连接服务器…"));
     m_secondaryLabel->setText("已尝试 0 次");
     m_hintLabel->hide();
@@ -216,8 +223,19 @@ void ConnectionOverlay::ensureVisible(bool wasConnected)
     show();
     m_spinner->start();
 
-    if (m_blockTarget) {
-        m_blockTarget->setEnabled(false);
+    if (wasConnected) {
+        // 重连态：非阻塞。保留底层页面（含搜索框）可交互，遮罩仅作提示并鼠标穿透，
+        // 因此离线缓存查询（LocalWordCache）在断网时仍可用。自动重连持续进行，无需手动重试。
+        setAttribute(Qt::WA_TransparentForMouseEvents, true);
+        if (m_blockTarget) {
+            m_blockTarget->setEnabled(true);
+        }
+    } else {
+        // 初始连接态：保持原阻塞行为，避免未连上时空操作。
+        setAttribute(Qt::WA_TransparentForMouseEvents, false);
+        if (m_blockTarget) {
+            m_blockTarget->setEnabled(false);
+        }
     }
 }
 

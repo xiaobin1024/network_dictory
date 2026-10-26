@@ -76,6 +76,7 @@ private:
     QWidget*     m_blockTarget{nullptr};
     int          m_giveUpAttempts{10};
     bool         m_shown{false};
+    bool         m_wasConnected{false};   // 上次 show 是否为“已连接后断开”（重连态）
 
     QTimer*      m_pendingTimer{nullptr};
 

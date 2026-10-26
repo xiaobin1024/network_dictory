@@ -4,8 +4,10 @@
  *
  * 覆盖断网遮罩的核心行为（确定性，不依赖真实服务器）：
  *   - 初始隐藏，且不会阻塞底层页面；
- *   - showConnecting / showReconnecting 后可见，并禁用 block target（阻塞输入）；
- *   - updateAttempt 正确累加“已尝试 N 次”，达到阈值切换为“提示重启”文案；
+ *   - showConnecting（初始连接态）后可见，并禁用 block target（阻塞输入）；
+ *   - showReconnecting（重连态）后可见，但【不阻塞】底层页面且遮罩鼠标穿透，
+ *     以便离线时搜索框仍可查询本地缓存（LocalWordCache）；
+ *   - updateAttempt 正确累加“已尝试 N 次”，阻塞态达到阈值切换为“提示重启”文案；
  *   - hideOverlay 后隐藏并恢复底层页面输入；
  *   - armPendingShow 在延迟内若未 hide 则弹出遮罩（避免秒连闪烁）。
  *
@@ -83,11 +85,34 @@ TEST_F(OverlayHarness, ShowConnectingBlocksInput)
     EXPECT_FALSE(m_blockTarget->isEnabled());   // 底层输入被阻塞
 }
 
-TEST_F(OverlayHarness, ShowReconnectingBlocksInput)
+TEST_F(OverlayHarness, ShowReconnectingKeepsInputUnblocked)
 {
+    // 重连态必须“非阻塞”：底层页面（含搜索框）保持可交互，离线缓存查询才可用。
     m_overlay->showReconnecting();
     EXPECT_TRUE(m_overlay->isVisible());
+    EXPECT_TRUE(m_blockTarget->isEnabled());   // 输入不被阻塞
+    // 遮罩鼠标穿透，点击落到底层页面而非遮罩
+    EXPECT_TRUE(m_overlay->testAttribute(Qt::WA_TransparentForMouseEvents));
+}
+
+TEST_F(OverlayHarness, ShowConnectingIsBlocking)
+{
+    // 初始连接态仍保持阻塞，避免未连上时空操作。
+    m_overlay->showConnecting();
+    EXPECT_TRUE(m_overlay->isVisible());
     EXPECT_FALSE(m_blockTarget->isEnabled());
+    EXPECT_FALSE(m_overlay->testAttribute(Qt::WA_TransparentForMouseEvents));
+}
+
+TEST_F(OverlayHarness, ReconnectOverlayStaysUnblockedAtThreshold)
+{
+    // 重连态即便达到重连阈值，也不应弹出“立即重试”死按钮（自动重连接管）。
+    m_overlay->showReconnecting();
+    m_overlay->updateAttempt(3, 100);   // 达到阈值
+    QPushButton* retry = m_overlay->findChild<QPushButton*>("connRetryBtn");
+    ASSERT_NE(retry, nullptr);
+    EXPECT_FALSE(retry->isVisible());   // 重连态不显示手动重试
+    EXPECT_TRUE(m_blockTarget->isEnabled());
 }
 
 TEST_F(OverlayHarness, UpdateAttemptCountsAndThresholdShowsHint)
