@@ -265,7 +265,12 @@ bool Server::start()
         }
     }
 
-    close(sfd_);
+    // 监听套接字可能已在 stop() 中关闭并置为 -1，此处需判空避免无效 close
+    if (sfd_ >= 0)
+    {
+        close(sfd_);
+        sfd_ = -1;
+    }
     LOG(LogLevel::INFO, "Server stopped gracefully");
     return true;
 }
