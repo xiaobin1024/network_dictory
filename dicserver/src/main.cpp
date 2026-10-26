@@ -50,8 +50,11 @@ int main(int argc, const char *argv[])
         }
         //构造一个服务器
         Server server(db_manager,thread_pool,argv[1],atoi(argv[2]));
-        //启动服务器
+        //启动服务器（阻塞运行，直到收到 SIGINT/SIGTERM 触发优雅关闭）
         server.start();
+        // 优雅关闭收尾：等待所有工作线程处理完在途请求后退出。
+        // 此时 server 与 db_manager 仍在作用域内，避免析构顺序竞态导致工作线程访问已销毁对象。
+        thread_pool->join();
     }
     catch(const std::exception& e)
     {

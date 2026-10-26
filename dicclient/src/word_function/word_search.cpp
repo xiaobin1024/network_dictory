@@ -1,5 +1,7 @@
 #include "word_search.h"
 #include"message_dispatcher.h"
+#include "local_word_cache.h"
+#include "network_manager.h"
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
@@ -30,12 +32,31 @@ void WordSearch::setUserSession(UserSession* session)
     m_userSession = session;
 }
 
+void WordSearch::setNetworkManager(NetworkManager* networkManager)
+{
+    m_networkManager = networkManager;
+}
+
 // 修改 searchWord 方法
 void WordSearch::searchWord(const QString& word)
 {
     qDebug()<<" WordSearch::searchWord";
     if (word.isEmpty()) {
         emit searchFailed("单词不能为空");
+        return;
+    }
+
+    // 断网兜底：未连接服务器时，若本地缓存已有该词，直接回退展示，
+    // 避免用户在离线状态下完全不可用；否则明确提示需联网。
+    if (m_networkManager && !m_networkManager->isConnected()) {
+        WordData cached;
+        if (LocalWordCache::instance()->get(word, cached)) {
+            cached.fromCache = true;
+            m_currentWord = cached;
+            emit searchSuccess(cached);
+            return;
+        }
+        emit searchFailed("当前网络不可用，且该单词不在本地缓存");
         return;
     }
 
@@ -129,6 +150,9 @@ void WordSearch::processSearchResponse(const QString& response) {
         emit searchFailed("单词数据无效");
         return;
     }
+
+    // 成功查到的词条写入本地缓存，供断网兜底与弱网重复查询命中
+    LocalWordCache::instance()->put(wordData.word, wordData);
 
     m_currentWord = wordData;
     emit searchSuccess(wordData);

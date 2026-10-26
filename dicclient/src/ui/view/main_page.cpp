@@ -189,6 +189,9 @@ void MainPage::onSearchRequested(const QString& query)
 
 void MainPage::onWordSearchSuccess(const WordData& wordData)
 {
+    if (wordData.fromCache) {
+        showMessage("（离线缓存）展示的是本地已查过的词条", false, 1500);
+    }
     setCurrentWordCard(wordData);
 }
 

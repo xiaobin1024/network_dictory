@@ -65,6 +65,17 @@ bool threadPool::addTask(function<void()> task, std::chrono::seconds timeout)
 3.否则从任务队列取出任务，执行任务，并捕获异常
 4.任务执行完成后，通知所有等待的生产者
 */
+void threadPool::join()
+{
+    for (auto &worker : workers)
+    {
+        if (worker.joinable())
+        {
+            worker.join();
+        }
+    }
+}
+
 void threadPool::startThreadPool(size_t numThreads)
 {
     workers.reserve(numThreads);

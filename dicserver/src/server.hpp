@@ -6,6 +6,7 @@
 #include <string>
 #include <ctime>
 #include <mutex>
+#include <atomic>
 #include <unordered_map>
 #include <netinet/in.h> // sockaddr_in
 #include "message.hpp"
@@ -24,6 +25,9 @@ public:
     // 停止服务器
     bool stop();
 
+    // 安装 SIGINT/SIGTERM 信号处理器，收到后触发优雅关闭（仅设置停止标志并关闭监听套接字）
+    void installSignalHandlers();
+
     void processMessage(int cfd, Msg &msg, sockaddr_in client_addr);
 private:
     // 服务器套接字文件描述符
@@ -32,8 +36,8 @@ private:
     int port_;
     // ip地址
     std::string ip_;
-    // 运行权限
-    bool runnning_;
+    // 运行权限（原子：accept 循环与工作线程、信号处理器都会读写）
+    std::atomic<bool> runnning_{false};
     // 数据库管理器
     DatabaseManager& db_manager_;  // 新增成员变量保存引用
     //线程池管理器

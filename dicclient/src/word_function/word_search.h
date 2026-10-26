@@ -8,6 +8,7 @@
 
 // 前向声明，不要包含头文件
 class MessageDispatcher;
+class NetworkManager;
 
 class WordSearch : public QObject
 {
@@ -26,6 +27,9 @@ public:
     void setMessageDispatcher(MessageDispatcher* dispatcher);
 
     void setUserSession(UserSession* session);
+
+    // 注入网络管理器，用于判断当前是否已连接服务器（断网兜底需要）
+    void setNetworkManager(NetworkManager* networkManager);
 
 
 signals:
@@ -51,6 +55,7 @@ private:
     WordData m_currentWord;
     MessageDispatcher* m_dispatcher{nullptr};
    UserSession* m_userSession{nullptr};
+   NetworkManager* m_networkManager{nullptr};
 };
 
 #endif // WORD_SEARCH_H

@@ -34,6 +34,9 @@ public:
     // 添加任务（带超时机制）
     bool addTask(std::function<void()> task, std::chrono::seconds timeout = std::chrono::seconds(10));
 
+    // 阻塞等待所有工作线程退出（配合进程优雅关闭：在 Server/DB 仍存活时调用，避免析构竞态）
+    void join();
+
     // 查询状态
     size_t getPendingTasks() const { return static_cast<size_t>(pendingTasks); }
     bool isFull() const { return static_cast<size_t>(pendingTasks) >= maxQueueSize; }

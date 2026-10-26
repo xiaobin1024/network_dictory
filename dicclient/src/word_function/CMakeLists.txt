@@ -50,6 +50,7 @@ add_library(word_function STATIC
     word_collect.h word_collect.cpp
     word_vocabulary.h word_vocabulary.cpp
     export_manager.h export_manager.cpp
+    local_word_cache.h local_word_cache.cpp
 )
 
 # 链接依赖库

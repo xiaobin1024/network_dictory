@@ -167,6 +167,7 @@ int main(int argc, char *argv[])
 
         userSession->setMessageDispatcher(messageDispatcher);
         wordSearch->setMessageDispatcher(messageDispatcher);
+        wordSearch->setNetworkManager(networkManager);
         wordCollect->setMessageDispatcher(messageDispatcher);
         wordVocabulary->setMessageDispatcher(messageDispatcher);
         qDebug() << "各模块 MessageDispatcher 设置完成";

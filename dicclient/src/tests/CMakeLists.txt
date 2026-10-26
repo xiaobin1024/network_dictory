@@ -188,6 +188,7 @@ set(TEST_SOURCES
     tst_ui_search_base
     tst_ui_searchhistory_widget
     tst_ui_connection_overlay
+    tst_local_word_cache
 )
 
 foreach(test_name ${TEST_SOURCES})

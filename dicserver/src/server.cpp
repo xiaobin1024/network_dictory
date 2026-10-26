@@ -14,6 +14,7 @@
 #include <atomic>
 #include <iomanip>
 #include <cerrno>
+#include <csignal>       // sigaction / signal 处理
 #include <unistd.h>      // close / usleep
 #include <fcntl.h>       // fcntl / O_NONBLOCK
 #include <sys/time.h>    // struct timeval
@@ -54,6 +55,16 @@ namespace
         }
         return fields;
     }
+
+    // 优雅关闭：信号处理器只能是无捕获的 C 函数，故用全局指针回指当前 Server 实例
+    Server *g_signalTarget = nullptr;
+    void onTerminationSignal(int /*sig*/)
+    {
+        if (g_signalTarget)
+        {
+            g_signalTarget->stop();
+        }
+    }
 }
 
 // 安全拷贝：确保目标缓冲区以 '\0' 结尾
@@ -83,7 +94,7 @@ void Server::safeStrcpy(std::string &dst, const std::string &src, size_t max_len
 // 服务器的构造函数：完成套接字创建，端口号快速重用，绑定IP地址和端口号
 // 初始化列表顺序与 server.hpp 中的成员声明顺序保持一致，避免 -Wreorder 告警
 Server::Server(DatabaseManager &db_manage, const shared_ptr<threadPool> thread_pool, const string ip, int port)
-    : sfd_(-1), port_(port), ip_(ip), runnning_(false), db_manager_(db_manage), thread_pool_(thread_pool)
+    : sfd_(-1), port_(port), ip_(ip), db_manager_(db_manage), thread_pool_(thread_pool)
 {
     // 创建套接字
     this->sfd_ = socket(AF_INET, SOCK_STREAM, 0);
@@ -187,6 +198,19 @@ bool Server::sendMsg(int cfd, const Msg &msg, int flags)
     }
     return true;
 }
+void Server::installSignalHandlers()
+{
+    g_signalTarget = this;
+    struct sigaction sa;
+    std::memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = onTerminationSignal;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;
+    sigaction(SIGINT, &sa, nullptr);
+    sigaction(SIGTERM, &sa, nullptr);
+    LOG(LogLevel::INFO, "Signal handlers installed (SIGINT/SIGTERM -> graceful shutdown)");
+}
+
 // 启动服务器
 bool Server::start()
 {
@@ -203,6 +227,10 @@ bool Server::start()
     fcntl(sfd_, F_SETFL, flags | O_NONBLOCK);
 
     runnning_ = true;
+
+    // 安装优雅关闭信号处理器：Ctrl+C(SIGINT) / kill(SIGTERM) 时停止接收新连接，
+    // 已建立的连接在途请求由工作线程自然处理完（recv 10s 超时后退出），不再粗暴杀进程。
+    installSignalHandlers();
 
     while (runnning_)
     {

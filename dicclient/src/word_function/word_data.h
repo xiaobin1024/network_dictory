@@ -17,6 +17,7 @@ struct WordData{
     QString translation;    // 句意
     bool isCollected;    //收藏标识
     bool isVocabulary;  //生词标识
+    bool fromCache{false}; //是否来自本地离线缓存（断网兜底命中时置 true）
 
     // 默认构造函数
     WordData() = default;
